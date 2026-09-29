@@ -215,3 +215,29 @@ var version = "dev"
 - `download-artifact@v8` 必须配 `digest-mismatch: warn`（upload 用 v7，无 digest 元数据）
 - GHA 缓存 scope 带 `binary-name` 维度，避免跨仓库撞车；仓库上限 10GB
 - runner 必须写死版本（如 `ubuntu-24.04`），用 `ubuntu-latest` 会在大版本轮换时静默改 glibc
+
+---
+
+## 八、已接入仓库参数表
+
+套用时**需要按仓库调整的只有 6 类键**：`go-dir`、`main-package`、`binary-name`、
+`image-name`、`web-dir` + `frontend-stage-command`、`test-packages`。
+
+| 仓库 | go-dir | main-package | binary-name | image-name | web-dir | cgo | 需额外设置 |
+|---|---|---|---|---|---|---|---|
+| shenshi | `server` | `.` | `shenshi` | `ghcr.io/felix2yu/shenshi` | `web` | off | `frontend-stage-command` 拷 `web/dist` → `server/dist`（go:embed）；`test-packages: ./internal/...` |
+| qiansi | `.` | `./cmd/server` | `qiansi` | `ghcr.io/felix2yu/qiansi` | `web` | off | `web-install-flags: --legacy-peer-deps`；`codecov-disable-search: true`；前端另打 `web-dist.zip` |
+| mujian | `backend` | `.` | `mujian` | `ghcr.io/felix2yu/mujian` | `frontend` | **glibc** | `test-cgo: '1'`；`frontend-stage-command` 拷 `frontend/dist` → `backend/dist` |
+| huozhi | `backend` | `./cmd/huozhi-server` | `huozhi-server` | `ghcr.io/felix2yu/huozhi` | `frontend` | **musl** | `test-cgo: '1'`；`web-test-command: npm run test:coverage` + `frontend-coverage-file` |
+| qingye | `server` | `.` | `qingye` | `ghcr.io/felix2yu/qingye` | `web` | **musl** | `test-cgo: '1'` |
+| diarum | `.` | `.` | `diarum` | `ghcr.io/felix2yu/diarum` | `site` | off | `version-var: main.Version`（本仓库变量是大写） |
+| bili-history | `backend` | `./cmd` | `bili-history` | `ghcr.io/felix2yu/bili-history` | `frontend` | **musl** | `web-build-command: pnpm run generate`；`test-packages: ./config/... ./utils/... ./models/...` |
+| bili-dl | `.` | `.` | `bili-dl` | —（无 Dockerfile，删掉 image job） | — | off | — |
+| qbhive | `.` | `./cmd/server` | `qbhive` | `ghcr.io/felix2yu/qbhive` | — | off | — |
+| yuexi | `.` | `.` | `yuexi` | `ghcr.io/felix2yu/yuexi` | — | off | `test-flags: -race -covermode=atomic` |
+| chaxin | `.` | `./cmd/server` | `chaxin` | `ghcr.io/felix2yu/chaxin` | — | off | 前端非 npm：`frontend-stage-command: sh web/build.sh` |
+| liuxia | `.` | `.` | `liuxia` | `ghcr.io/felix2yu/liuxia` | — | off | `test-flags: -race -covermode=atomic` |
+| docker-db-auto-backup | `.` | `.` | `db-auto-backup` | `ghcr.io/felix2yu/docker-db-auto-backup` | — | off | 保留 lint / e2e 两个仓库自有 job |
+
+**版本号不需要手写**：Go 版本读 `go.mod`、Node 版本读 `.nvmrc`、发布版本来自 git tag、
+镜像 tag 由 metadata-action 推导。
