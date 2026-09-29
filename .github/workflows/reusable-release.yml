@@ -139,7 +139,12 @@ jobs:
             esac
           fi
           cd "$GITHUB_WORKSPACE"
-          ${{ inputs.frontend-stage-command }}
+
+      # 与 web-dir 解耦：非 npm 前端（如 chaxin 的 sh web/build.sh）没有 web-dir，
+      # 但同样需要在编译前生成 go:embed 依赖物。
+      - name: Stage frontend assets
+        if: inputs.frontend-stage-command != ''
+        run: ${{ inputs.frontend-stage-command }}
 
       - name: Pre-build
         if: inputs.pre-build-command != ''
@@ -251,7 +256,10 @@ jobs:
             esac
           fi
           cd "$GITHUB_WORKSPACE"
-          ${{ inputs.frontend-stage-command }}
+
+      - name: Stage frontend assets
+        if: inputs.frontend-stage-command != ''
+        run: ${{ inputs.frontend-stage-command }}
 
       - name: Build (native CGO)
         shell: bash
