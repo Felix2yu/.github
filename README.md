@@ -89,7 +89,7 @@ jobs:
 | `go-dir` | string | `.` | `go.mod` 所在目录 |
 | `test-packages` | string | `./...` | `go test` 目标包；main 包带 `//go:embed` 时改 `./internal/...` |
 | `test-flags` | string | `-covermode=atomic` | 追加参数，如 `-race` |
-| `test-cgo` | boolean | `false` | CGO 项目设 true |
+| `test-cgo` | string | `''`（沿用 runner 的 1） | 显式覆盖 `CGO_ENABLED`。`-race` 与 CGO 依赖都要求 1——测试产物不发布、静态与否无意义，所以默认不关掉它；确需关闭填 `0` |
 | `vet` | boolean | `true` | |
 | `pre-test-command` | string | `''` | 在 `go-dir` 内执行，生成 `go:embed` 依赖物 |
 | `web-dir` | string | `''` | 空 = 无前端 |

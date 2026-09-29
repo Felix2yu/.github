@@ -25,9 +25,9 @@ on:
         default: '-covermode=atomic'
         description: '追加给 go test 的参数，如 -race'
       test-cgo:
-        type: boolean
-        default: false
-        description: '测试期是否需要 CGO（huozhi / qingye / bili-history / mujian = true）'
+        type: string
+        default: ''
+        description: '留空 = 沿用 runner 默认（1）。-race 与 CGO 依赖都要求 1，而测试产物不发布、静态与否无意义，所以默认不关掉它；确需关闭时填 0'
       vet:
         type: boolean
         default: true
@@ -186,9 +186,13 @@ jobs:
 
       - name: go test
         working-directory: ${{ inputs.go-dir }}
-        env:
-          CGO_ENABLED: ${{ inputs.test-cgo && '1' || '0' }}
-        run: go test ${{ inputs.test-flags }} -coverprofile=${{ inputs.coverage-file }} ${{ inputs.test-packages }}
+        run: |
+          # 只在显式指定时才覆盖 CGO_ENABLED：默认沿用 runner 的 1，
+          # 这样 -race（要求 cgo）与 CGO 依赖都能开箱工作。
+          if [ -n "${{ inputs.test-cgo }}" ]; then
+            export CGO_ENABLED="${{ inputs.test-cgo }}"
+          fi
+          go test ${{ inputs.test-flags }} -coverprofile=${{ inputs.coverage-file }} ${{ inputs.test-packages }}
 
       - name: Resolve coverage path
         id: cov
