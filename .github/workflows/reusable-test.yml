@@ -35,6 +35,10 @@ on:
         type: string
         default: ''
         description: '在 go-dir 内执行，用于生成 go:embed 依赖物（如 chaxin 的 sh ../web/build.sh）'
+      frontend-stage-command:
+        type: string
+        default: ''
+        description: '在仓库根执行：把前端产物摆到 go:embed 位置。test-packages 含 main 包且 main 带 //go:embed 时必须设置'
       web-dir:
         type: string
         default: ''
@@ -178,6 +182,10 @@ jobs:
         if: inputs.pre-test-command != ''
         working-directory: ${{ inputs.go-dir }}
         run: ${{ inputs.pre-test-command }}
+
+      - name: Stage frontend assets
+        if: inputs.frontend-stage-command != ''
+        run: ${{ inputs.frontend-stage-command }}
 
       - name: go vet
         if: inputs.vet
