@@ -215,6 +215,13 @@ var version = "dev"
 - `download-artifact@v8` 必须配 `digest-mismatch: warn`（upload 用 v7，无 digest 元数据）
 - GHA 缓存 scope 带 `binary-name` 维度，避免跨仓库撞车；仓库上限 10GB
 - runner 必须写死版本（如 `ubuntu-24.04`），用 `ubuntu-latest` 会在大版本轮换时静默改 glibc
+- **调用方传了被调 workflow 未声明的 input 会直接 `startup_failure`**：没有 job、没有日志，
+  只能看到 conclusion。排查时第一件事是比对两边 input 名是否一一对应
+- **装配式 Dockerfile 要求 `.dockerignore` 不得排除 `bin/` 与 `dist/`**：
+  否则 `COPY bin/<binary>` 报 `CopyIgnoredFile: ... excluded by .dockerignore`。
+  同时本地 `docker build` / `docker compose build` 前必须先编译出二进制
+- 若仓库原有「校验 Dockerfile 基镜像版本 == .nvmrc / go.mod」这类脚本，
+  改为装配式后 Dockerfile 不再声明工具链版本，该校验失去对象，需一并调整
 
 ---
 
@@ -231,7 +238,7 @@ var version = "dev"
 | huozhi | `backend` | `./cmd/huozhi-server` | `huozhi-server` | `ghcr.io/felix2yu/huozhi` | `frontend` | **musl** | `test-cgo: '1'`；`web-test-command: npm run test:coverage` + `frontend-coverage-file` |
 | qingye | `server` | `.` | `qingye` | `ghcr.io/felix2yu/qingye` | `web` | **musl** | `test-cgo: '1'` |
 | diarum | `.` | `.` | `diarum` | `ghcr.io/felix2yu/diarum` | `site` | off | `version-var: main.Version`（本仓库变量是大写） |
-| bili-history | `backend` | `./cmd` | `bili-history` | `ghcr.io/felix2yu/bili-history` | `frontend` | **musl** | `web-build-command: pnpm run generate`；`test-packages: ./config/... ./utils/... ./models/...` |
+| bili-history | `backend` | `./cmd` | `bili-history` | `ghcr.io/felix2yu/bili-history` | `frontend` | off | `web-build-command: pnpm run generate`；`test-packages: ./config/... ./utils/... ./models/... ./database/...` |
 | bili-dl | `.` | `.` | `bili-dl` | —（无 Dockerfile，删掉 image job） | — | off | — |
 | qbhive | `.` | `./cmd/server` | `qbhive` | `ghcr.io/felix2yu/qbhive` | — | off | — |
 | yuexi | `.` | `.` | `yuexi` | `ghcr.io/felix2yu/yuexi` | — | off | `test-flags: -race -covermode=atomic` |
