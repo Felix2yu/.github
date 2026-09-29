@@ -1,0 +1,315 @@
+name: Reusable · Release
+
+# 统一的二进制发布流程：由 GitHub Release published 触发，交叉编译各平台、
+# 注入版本号、生成校验和，挂到该 release 上。
+#
+# cgo=off   → 单 runner 交叉编译 5 平台（10 个仓库，秒级）
+# cgo!=off  → 各平台原生 runner（CGO 无法跨 OS 交叉编译）
+#
+# 版本号不在这里写死：取自 release 的 tag 名（GITHUB_REF_NAME），
+# 经 -ldflags -X 注入二进制。各仓库 main 包需有对应的 version 变量。
+
+on:
+  workflow_call:
+    inputs:
+      go-dir:
+        type: string
+        default: '.'
+      main-package:
+        type: string
+        default: '.'
+      binary-name:
+        type: string
+        required: true
+      cgo:
+        type: string
+        default: 'off'
+        description: 'off | musl | glibc'
+      version-var:
+        type: string
+        default: 'main.version'
+        description: '被注入的符号；diiarum = main.Version'
+      release-platforms:
+        type: string
+        default: 'linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64'
+      build-ldflags:
+        type: string
+        default: '-s -w'
+      web-dir:
+        type: string
+        default: ''
+      node-version-file:
+        type: string
+        default: '.nvmrc'
+      node-version:
+        type: string
+        default: '22'
+      package-manager:
+        type: string
+        default: 'auto'
+      web-install-flags:
+        type: string
+        default: ''
+      web-build-command:
+        type: string
+        default: ''
+      frontend-stage-command:
+        type: string
+        default: ''
+      pre-build-command:
+        type: string
+        default: ''
+        description: '编译前在仓库根执行，如 qiansi 打 web-dist.zip'
+      extra-files:
+        type: string
+        default: ''
+        description: '额外挂到 release 的文件，换行分隔'
+      runs-on:
+        type: string
+        default: 'ubuntu-24.04'
+
+jobs:
+  binaries-cross:
+    if: inputs.cgo == 'off'
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve package manager
+        id: pm
+        if: inputs.web-dir != ''
+        working-directory: ${{ inputs.web-dir }}
+        run: |
+          case "${{ inputs.package-manager }}" in
+            npm|pnpm) pm="${{ inputs.package-manager }}" ;;
+            *) if [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm; else pm=npm; fi ;;
+          esac
+          case "$pm" in
+            pnpm) lock="pnpm-lock.yaml" ;;
+            *)    lock="package-lock.json" ;;
+          esac
+          echo "pm=$pm" >> "$GITHUB_OUTPUT"
+          echo "lockfile=${{ inputs.web-dir }}/$lock" >> "$GITHUB_OUTPUT"
+
+      - name: Check node version file
+        id: nodever
+        if: inputs.web-dir != ''
+        run: |
+          if [ -f "${{ inputs.node-version-file }}" ]; then
+            echo "has-file=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-file=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v6
+        if: inputs.web-dir != '' && steps.pm.outputs.pm == 'pnpm'
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'true'
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: ${{ steps.pm.outputs.pm }}
+          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
+
+      - uses: actions/setup-node@v7
+        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'false'
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ steps.pm.outputs.pm }}
+          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ inputs.go-dir }}/go.mod
+          cache-dependency-path: ${{ inputs.go-dir }}/go.sum
+
+      - name: Build & stage frontend
+        if: inputs.web-dir != ''
+        run: |
+          cd "${{ inputs.web-dir }}"
+          if [ -n "${{ inputs.web-build-command }}" ]; then
+            eval "${{ inputs.web-build-command }}"
+          else
+            case "${{ steps.pm.outputs.pm }}" in
+              pnpm) pnpm install --frozen-lockfile && pnpm run build ;;
+              *)    npm ci ${{ inputs.web-install-flags }} && npm run build ;;
+            esac
+          fi
+          cd "$GITHUB_WORKSPACE"
+          ${{ inputs.frontend-stage-command }}
+
+      - name: Pre-build
+        if: inputs.pre-build-command != ''
+        run: ${{ inputs.pre-build-command }}
+
+      - name: Cross-compile with version injection
+        working-directory: ${{ inputs.go-dir }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          IFS=',' read -ra PLATFORMS <<< "${{ inputs.release-platforms }}"
+          for p in "${PLATFORMS[@]}"; do
+            goos="${p%/*}"
+            goarch="${p#*/}"
+            out="$GITHUB_WORKSPACE/dist/${{ inputs.binary-name }}-${goos}-${goarch}"
+            # 注意：不能写成 [ cond ] && out=... —— 在 set -e 下条件为假会直接退出
+            if [ "$goos" = "windows" ]; then out="${out}.exe"; fi
+            echo "── ${goos}/${goarch} @ ${VERSION}"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath \
+                -ldflags "${{ inputs.build-ldflags }} -X ${{ inputs.version-var }}=${VERSION}" \
+                -o "$out" ${{ inputs.main-package }}
+          done
+          ls -lh "$GITHUB_WORKSPACE/dist"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/*
+          retention-days: 7
+
+  binaries-matrix:
+    if: inputs.cgo != 'off'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64, runs-on: ubuntu-24.04 }
+          - { goos: linux,   goarch: arm64, runs-on: ubuntu-24.04-arm }
+          - { goos: darwin,  goarch: amd64, runs-on: macos-latest }
+          - { goos: darwin,  goarch: arm64, runs-on: macos-latest }
+          - { goos: windows, goarch: amd64, runs-on: windows-latest }
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve package manager
+        id: pm
+        if: inputs.web-dir != ''
+        working-directory: ${{ inputs.web-dir }}
+        run: |
+          case "${{ inputs.package-manager }}" in
+            npm|pnpm) pm="${{ inputs.package-manager }}" ;;
+            *) if [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm; else pm=npm; fi ;;
+          esac
+          case "$pm" in
+            pnpm) lock="pnpm-lock.yaml" ;;
+            *)    lock="package-lock.json" ;;
+          esac
+          echo "pm=$pm" >> "$GITHUB_OUTPUT"
+          echo "lockfile=${{ inputs.web-dir }}/$lock" >> "$GITHUB_OUTPUT"
+
+      - name: Check node version file
+        id: nodever
+        if: inputs.web-dir != ''
+        run: |
+          if [ -f "${{ inputs.node-version-file }}" ]; then
+            echo "has-file=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-file=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v6
+        if: inputs.web-dir != '' && steps.pm.outputs.pm == 'pnpm'
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'true'
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: ${{ steps.pm.outputs.pm }}
+          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
+
+      - uses: actions/setup-node@v7
+        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'false'
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ steps.pm.outputs.pm }}
+          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ inputs.go-dir }}/go.mod
+          cache-dependency-path: ${{ inputs.go-dir }}/go.sum
+
+      - name: Build & stage frontend
+        if: inputs.web-dir != ''
+        run: |
+          cd "${{ inputs.web-dir }}"
+          if [ -n "${{ inputs.web-build-command }}" ]; then
+            eval "${{ inputs.web-build-command }}"
+          else
+            case "${{ steps.pm.outputs.pm }}" in
+              pnpm) pnpm install --frozen-lockfile && pnpm run build ;;
+              *)    npm ci ${{ inputs.web-install-flags }} && npm run build ;;
+            esac
+          fi
+          cd "$GITHUB_WORKSPACE"
+          ${{ inputs.frontend-stage-command }}
+
+      - name: Build (native CGO)
+        shell: bash
+        working-directory: ${{ inputs.go-dir }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          name="${{ inputs.binary-name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then name="${name}.exe"; fi
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+
+          if [ "${{ inputs.cgo }}" = "glibc" ] && [ "${{ matrix.goos }}" = "linux" ]; then
+            # 幕间的 Linux 产物仍在固定 glibc 的容器里编译，与镜像保持同一份约束
+            modcache=$(go env GOMODCACHE)
+            mkdir -p "$modcache"
+            docker run --rm --user "$(id -u):$(id -g)" \
+              -v "$GITHUB_WORKSPACE:/src" -w "/src/${{ inputs.go-dir }}" \
+              -v "$modcache:/go/pkg/mod" \
+              -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOTOOLCHAIN=local -e CGO_ENABLED=1 \
+              golang:1.27-bookworm \
+              go build -trimpath \
+                -ldflags "${{ inputs.build-ldflags }} -X ${{ inputs.version-var }}=${VERSION}" \
+                -o "/src/dist/${name}" ${{ inputs.main-package }}
+          else
+            # CGO_ENABLED 必须与命令同行：换行赋值在 PowerShell 下不生效
+            CGO_ENABLED=1 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+              go build -trimpath \
+                -ldflags "${{ inputs.build-ldflags }} -X ${{ inputs.version-var }}=${VERSION}" \
+                -o "$GITHUB_WORKSPACE/dist/${name}" ${{ inputs.main-package }}
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/*
+          retention-days: 7
+
+  publish:
+    # 两个构建 job 互斥，被跳过的那个会把 needs 连带跳过，故用 !cancelled() 兜底
+    needs: [binaries-cross, binaries-matrix]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+          # upload 用 v7，无 digest 元数据，v8 的默认校验会误报
+          digest-mismatch: warn
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/*
+            ${{ inputs.extra-files }}

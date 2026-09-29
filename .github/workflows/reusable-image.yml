@@ -1,0 +1,305 @@
+name: Reusable · Image
+
+# 统一的镜像构建流程：CI 预编译二进制 + Dockerfile 只做装配 + 双架构 manifest 合并。
+#
+# 为什么预编译而不是在 Dockerfile 里编译：
+#   镜像构建从 ~10min 降到 ~1min；镜像内不再需要 Go / Node 工具链；
+#   二进制在 runner 上编，缓存命中率高，且能在推送前做 glibc 校验。
+#
+# CGO 三态（inputs.cgo）：
+#   off   —— 纯 Go，静态链接，可交叉编译（10 个仓库）
+#   musl  —— CGO + musl-gcc 静态链接（bili-history）
+#   glibc —— CGO + glibc 动态链接，必须在固定 glibc 的容器里编译（幕间 mujian）
+#
+# 差异用三条互斥 step 表达，而不是三个 job：
+#   独立 job 会引入 needs 跳过语义（被 if 跳过的 job 会连带跳过下游），
+#   而条件 step 让 90% 的仓库「零感知」——它们的 job 里只有一条 step 命中。
+
+on:
+  workflow_call:
+    inputs:
+      go-dir:
+        type: string
+        default: '.'
+      main-package:
+        type: string
+        default: '.'
+        description: '相对 go-dir'
+      binary-name:
+        type: string
+        required: true
+      image-name:
+        type: string
+        required: true
+        description: '如 ghcr.io/felix2yu/shenshi。不用 github.repository 推导——reusable workflow 里它指向本仓库'
+      cgo:
+        type: string
+        default: 'off'
+        description: 'off | musl | glibc'
+      dockerfile:
+        type: string
+        default: 'Dockerfile'
+      context:
+        type: string
+        default: '.'
+      prebuilt-dest:
+        type: string
+        default: 'bin'
+        description: '预编译二进制落到 Docker 上下文的位置'
+      build-ldflags:
+        type: string
+        default: '-s -w'
+      web-dir:
+        type: string
+        default: ''
+      node-version-file:
+        type: string
+        default: '.nvmrc'
+      node-version:
+        type: string
+        default: '22'
+      package-manager:
+        type: string
+        default: 'auto'
+      web-install-flags:
+        type: string
+        default: ''
+      web-build-command:
+        type: string
+        default: ''
+      frontend-stage-command:
+        type: string
+        default: ''
+        description: '在仓库根执行：把前端产物摆到 go:embed 位置，和/或 dist/ 供 Dockerfile COPY'
+      runner-amd64:
+        type: string
+        default: 'ubuntu-24.04'
+      runner-arm64:
+        type: string
+        default: 'ubuntu-24.04-arm'
+      build-args:
+        type: string
+        default: ''
+      push-images:
+        type: boolean
+        default: true
+
+jobs:
+  docker:
+    # 权限只能向下收紧，不能提升：调用方 job 必须自己声明 packages: write
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux/amd64, arch: amd64, runs-on: '${{ inputs.runner-amd64 }}' }
+          - { platform: linux/arm64, arch: arm64, runs-on: '${{ inputs.runner-arm64 }}' }
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve package manager
+        id: pm
+        if: inputs.web-dir != ''
+        working-directory: ${{ inputs.web-dir }}
+        run: |
+          case "${{ inputs.package-manager }}" in
+            npm|pnpm) pm="${{ inputs.package-manager }}" ;;
+            *) if [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm; else pm=npm; fi ;;
+          esac
+          case "$pm" in
+            pnpm) lock="pnpm-lock.yaml" ;;
+            *)    lock="package-lock.json" ;;
+          esac
+          echo "pm=$pm" >> "$GITHUB_OUTPUT"
+          echo "lockfile=${{ inputs.web-dir }}/$lock" >> "$GITHUB_OUTPUT"
+
+      - name: Check node version file
+        id: nodever
+        if: inputs.web-dir != ''
+        run: |
+          if [ -f "${{ inputs.node-version-file }}" ]; then
+            echo "has-file=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-file=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v6
+        if: inputs.web-dir != '' && steps.pm.outputs.pm == 'pnpm'
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'true'
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: ${{ steps.pm.outputs.pm }}
+          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
+
+      - uses: actions/setup-node@v7
+        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'false'
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ steps.pm.outputs.pm }}
+          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ inputs.go-dir }}/go.mod
+          cache-dependency-path: ${{ inputs.go-dir }}/go.sum
+
+      - name: Build & stage frontend
+        if: inputs.web-dir != ''
+        run: |
+          cd "${{ inputs.web-dir }}"
+          if [ -n "${{ inputs.web-build-command }}" ]; then
+            eval "${{ inputs.web-build-command }}"
+          else
+            case "${{ steps.pm.outputs.pm }}" in
+              pnpm) pnpm install --frozen-lockfile && pnpm run build ;;
+              *)    npm ci ${{ inputs.web-install-flags }} && npm run build ;;
+            esac
+          fi
+          cd "$GITHUB_WORKSPACE"
+          ${{ inputs.frontend-stage-command }}
+
+      # ---------------- CGO 三态：三条互斥 step ----------------
+
+      - name: Build binary (static)
+        if: inputs.cgo == 'off'
+        working-directory: ${{ inputs.go-dir }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}"
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} \
+            go build -trimpath -ldflags="${{ inputs.build-ldflags }}" \
+              -o "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}" \
+              ${{ inputs.main-package }}
+
+      - name: Build binary (musl static)
+        if: inputs.cgo == 'musl'
+        working-directory: ${{ inputs.go-dir }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          mkdir -p "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}"
+          CC=musl-gcc CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} \
+            go build -trimpath \
+              -ldflags="${{ inputs.build-ldflags }} -linkmode external -extldflags '-static'" \
+              -o "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}" \
+              ${{ inputs.main-package }}
+
+      # 幕间专用。CGO 把二进制绑死在编译机的 glibc 上；若直接在 runner 上编，
+      # glibc 下限就成了 GitHub runner 轮换的属性，某次轮换后会突然炸。
+      # 放进固定 glibc 的容器里编，下限就变回仓库自己的属性。
+      - name: Build binary (glibc pinned container)
+        if: inputs.cgo == 'glibc'
+        working-directory: ${{ inputs.go-dir }}
+        run: |
+          modcache=$(go env GOMODCACHE)
+          mkdir -p "$modcache" "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE:/src" -w "/src/${{ inputs.go-dir }}" \
+            -v "$modcache:/go/pkg/mod" \
+            -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOTOOLCHAIN=local -e CGO_ENABLED=1 \
+            golang:1.27-bookworm \
+            go build -trimpath -ldflags="${{ inputs.build-ldflags }}" \
+              -o "/src/${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}" ${{ inputs.main-package }}
+
+      # 幕间专用。glibc 只向后兼容：编译机 glibc 高于运行镜像 → 容器启动时
+      # "GLIBC_2.x not found"，而 CI 全程是绿的。运行版本从 Dockerfile 读，
+      # 升基镜像会自动放宽这条检查。
+      - name: Verify glibc floor
+        if: inputs.cgo == 'glibc'
+        run: |
+          set -euo pipefail
+          command -v readelf >/dev/null || sudo apt-get install -y -q binutils
+          base=$(awk '/^FROM[[:space:]]/{print $2; exit}' Dockerfile)
+          bin="${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}"
+          required=$(readelf -V "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1 || true)
+          available=$(docker run --rm --entrypoint sh "$base" -c 'ldd --version | head -1' | awk '{print $NF}')
+          echo "runtime image $base provides glibc $available; binary requires up to ${required:-none}"
+          if [ -n "$required" ]; then
+            newest=$(printf '%s\n%s\n' "$required" "$available" | sort -V | tail -1)
+            if [ "$newest" != "$available" ]; then
+              echo "::error::binary requires glibc $required but the runtime image ($base) only provides $available"
+              echo "symbols needing GLIBC_$required:"
+              objdump -T "$bin" | grep "GLIBC_$required" || true
+              exit 1
+            fi
+          fi
+
+      # ---------------- 镜像（三种 CGO 形态共用） ----------------
+
+      - uses: docker/setup-buildx-action@v4
+
+      # fork / Dependabot PR 的 token 只读且无 packages 权限，登录必失败
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta (per-arch)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ inputs.image-name }}
+          tags: type=sha,format=long,prefix=sha-
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: ${{ inputs.push-images && github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}-${{ matrix.arch }}
+          build-args: ${{ inputs.build-args }}
+          # 强制重解析基础镜像 tag：alpine:3.24 背后的 digest 变了就重建，
+          # 这样每周空跑确实能把上游补丁带进来。
+          pull: true
+          # scope 必须带仓库维度：用 github.job 会让所有仓库共用同一份缓存
+          cache-from: type=gha,scope=${{ inputs.binary-name }}-${{ matrix.arch }}
+          cache-to:   type=gha,scope=${{ inputs.binary-name }}-${{ matrix.arch }},mode=max
+
+  manifest:
+    if: inputs.push-images && github.event_name != 'pull_request'
+    needs: docker
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta (final tags)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ inputs.image-name }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long,prefix=sha-
+
+      - name: Create and push manifest lists
+        run: |
+          set -euo pipefail
+          image="${{ inputs.image-name }}"
+          refs="$image:sha-${{ github.sha }}-amd64 $image:sha-${{ github.sha }}-arm64"
+          while IFS= read -r tag; do
+            if [ -z "$tag" ]; then continue; fi
+            echo "→ $tag"
+            docker buildx imagetools create -t "$tag" $refs
+          done <<< "${{ steps.meta.outputs.tags }}"
