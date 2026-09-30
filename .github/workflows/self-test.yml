@@ -29,3 +29,8 @@ jobs:
 
       - name: Lint workflows
         run: ./actionlint -color -shellcheck= -pyflakes=
+
+      # 包管理器解析块与前端安装块在三个 workflow 里有 4 份物理副本，靠本仓库内的一致性检查钉住。
+      # 本地改完先跑 `bash scripts/check-pm-blocks.sh`，别把偏离推到 v1 tag 上。
+      - name: Check duplicated pm blocks are byte-identical
+        run: bash scripts/check-pm-blocks.sh
