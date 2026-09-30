@@ -5,7 +5,8 @@ name: Reusable · Test & Coverage
 # 设计原则：
 #   ① 工具链版本一律读声明文件（go.mod / .nvmrc），不在 workflow 里写死，
 #      升级大版本只改声明，不必回来动 CI。
-#   ② 包管理器自动识别，调用方无需关心 npm / pnpm / bun。
+#   ② 包管理器一律读 <web-dir>/package.json 的 packageManager 声明，缺失即 fail。
+#      不探测 lockfile —— 静默兜底正是历史上双锁并存把 CI 带偏的成因。
 #   ③ 覆盖率上传永远 fail_ci_if_error=false：报告服务不是构建闸门，
 #      fork PR 拿不到 token 时也不该拦住 CI。
 
@@ -15,7 +16,7 @@ on:
       go-dir:
         type: string
         default: '.'
-        description: 'go.mod 所在目录'
+        description: 'go.mod 所在目录；留空 = 本仓库没有 Go 后端（如 WebMonitor 的 Python 后端），此时只跑前端部分'
       test-packages:
         type: string
         default: './...'
@@ -46,26 +47,15 @@ on:
       node-version-file:
         type: string
         default: '.nvmrc'
-      node-version:
-        type: string
-        default: '22'
-        description: '无 .nvmrc 时的兜底版本'
-      package-manager:
-        type: string
-        default: 'auto'
-        description: 'auto | npm | pnpm | bun'
-      web-install-flags:
-        type: string
-        default: ''
-        description: '如 qiansi 的 --legacy-peer-deps'
+        description: '仓库根相对路径。读不到就直接失败，不设兜底版本'
       web-build-command:
         type: string
         default: ''
-        description: '非空则完全接管前端构建；空则用包管理器默认流程'
+        description: '非空则替换默认的 `pnpm run build`；依赖仍由本流程统一 pnpm install --frozen-lockfile 安装'
       web-test-command:
         type: string
         default: ''
-        description: '如 huozhi 的 npm run test:coverage'
+        description: '如 huozhi 的 pnpm run test:coverage'
       coverage-file:
         type: string
         default: 'coverage.out'
@@ -101,77 +91,64 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # 包管理器自动识别 —— 全流程唯一的判断点
-      - name: Resolve package manager
-        id: pm
+      # >>> pm-resolve
+      - name: Check frontend toolchain declaration
         if: inputs.web-dir != ''
+        shell: bash
         working-directory: ${{ inputs.web-dir }}
         run: |
-          case "${{ inputs.package-manager }}" in
-            npm|pnpm|bun) pm="${{ inputs.package-manager }}" ;;
+          # 只读 packageManager 声明，不探测 lockfile。
+          # 用 sed 而非 jq：binaries-matrix 会在 macos / windows runner 上跑同一段。
+          [ -f package.json ] || { echo "::error::找不到 ${{ inputs.web-dir }}/package.json"; exit 1; }
+          spec=$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json | head -1)
+          case "$spec" in
+            pnpm@[0-9]*) ver=${spec#*@}; ver=${ver%%[+?]*} ;;
+            bun@*) echo "::error::packageManager 为 $spec：本流程只支持 pnpm（setup-node 不缓存 bun）"; exit 1 ;;
+            npm@*) echo "::error::packageManager 为 $spec：本流程只支持 pnpm，请迁移该工程"; exit 1 ;;
             *)
-              if   [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm
-              elif [ -f bun.lock ] || [ -f bun.lockb ];                then pm=bun
-              else pm=npm; fi ;;
+              echo "::error::${{ inputs.web-dir }}/package.json 缺 packageManager 字段"
+              echo '修复：cd ${{ inputs.web-dir }}，在 "name" 之后插入一行：  "packageManager": "pnpm@11.22.0",'
+              exit 1 ;;
           esac
-          case "$pm" in
-            pnpm) lock="pnpm-lock.yaml" ;;
-            bun)  lock="bun.lock" ;;
-            *)    lock="package-lock.json" ;;
-          esac
-          echo "pm=$pm" >> "$GITHUB_OUTPUT"
-          echo "lockfile=${{ inputs.web-dir }}/$lock" >> "$GITHUB_OUTPUT"
+          [ -f pnpm-lock.yaml ] || { echo "::error::${{ inputs.web-dir }} 缺 pnpm-lock.yaml，提交前执行 pnpm install --lockfile-only"; exit 1; }
+          echo "pnpm $ver ← ${{ inputs.web-dir }}/package.json 的 packageManager"
+      # <<< pm-resolve
 
-      - name: Check node version file
-        id: nodever
-        if: inputs.web-dir != ''
-        run: |
-          if [ -f "${{ inputs.node-version-file }}" ]; then
-            echo "has-file=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has-file=false" >> "$GITHUB_OUTPUT"
-          fi
-
+      # pnpm 版本由 packageManager 字段决定（action 自己读）。
+      # store 缓存仍走 setup-node：这条在本仓群已验证多年，pnpm/action-setup 的 cache 输入没验过。
       - uses: pnpm/action-setup@v6
-        if: inputs.web-dir != '' && steps.pm.outputs.pm == 'pnpm'
+        if: inputs.web-dir != ''
         with:
-          version: 11
+          package_json_file: ${{ inputs.web-dir }}/package.json
 
-      # 两个互斥的 setup-node：node-version-file 与 node-version 不能同时为空
       - uses: actions/setup-node@v7
-        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'true'
+        if: inputs.web-dir != ''
         with:
           node-version-file: ${{ inputs.node-version-file }}
-          cache: ${{ steps.pm.outputs.pm }}
-          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
-
-      - uses: actions/setup-node@v7
-        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'false'
-        with:
-          node-version: ${{ inputs.node-version }}
-          cache: ${{ steps.pm.outputs.pm }}
-          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.web-dir }}/pnpm-lock.yaml
 
       - uses: actions/setup-go@v7
+        if: inputs.go-dir != ''
         with:
           go-version-file: ${{ inputs.go-dir }}/go.mod
           cache-dependency-path: ${{ inputs.go-dir }}/go.sum
 
+      # >>> web-install
       - name: Install & build frontend
         if: inputs.web-dir != ''
+        shell: bash
         working-directory: ${{ inputs.web-dir }}
         run: |
-          pm="${{ steps.pm.outputs.pm }}"
-          flags="${{ inputs.web-install-flags }}"
+          # 依赖始终由本步安装；web-build-command 只替换构建命令，
+          # 否则传了该命令的仓库会在没有 node_modules 的情况下执行它。
+          pnpm install --frozen-lockfile
           if [ -n "${{ inputs.web-build-command }}" ]; then
             eval "${{ inputs.web-build-command }}"
           else
-            case "$pm" in
-              pnpm) pnpm install --frozen-lockfile && pnpm run build ;;
-              bun)  bun install --frozen-lockfile && bun run build ;;
-              *)    npm ci $flags && npm run build ;;
-            esac
+            pnpm run build
           fi
+      # <<< web-install
 
       - name: Frontend tests
         if: inputs.web-test-command != ''
@@ -188,11 +165,12 @@ jobs:
         run: ${{ inputs.frontend-stage-command }}
 
       - name: go vet
-        if: inputs.vet
+        if: inputs.go-dir != '' && inputs.vet
         working-directory: ${{ inputs.go-dir }}
         run: go vet ${{ inputs.test-packages }}
 
       - name: go test
+        if: inputs.go-dir != ''
         working-directory: ${{ inputs.go-dir }}
         run: |
           # 只在显式指定时才覆盖 CGO_ENABLED：默认沿用 runner 的 1，
@@ -204,12 +182,14 @@ jobs:
 
       - name: Resolve coverage path
         id: cov
+        if: inputs.go-dir != ''
         run: |
           d="${{ inputs.go-dir }}"
           if [ "$d" = "." ]; then d=""; fi
           echo "go=${d:+$d/}${{ inputs.coverage-file }}" >> "$GITHUB_OUTPUT"
 
       - name: Upload Go coverage
+        if: inputs.go-dir != ''
         uses: codecov/codecov-action@v7
         with:
           files: ${{ steps.cov.outputs.go }}

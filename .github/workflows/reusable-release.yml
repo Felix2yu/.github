@@ -28,7 +28,7 @@ on:
       version-var:
         type: string
         default: 'main.version'
-        description: '被注入的符号；diiarum = main.Version'
+        description: '被注入的符号；diarum = main.Version'
       release-platforms:
         type: string
         default: 'linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64'
@@ -41,18 +41,11 @@ on:
       node-version-file:
         type: string
         default: '.nvmrc'
-      node-version:
-        type: string
-        default: '22'
-      package-manager:
-        type: string
-        default: 'auto'
-      web-install-flags:
-        type: string
-        default: ''
+        description: '仓库根相对路径。读不到就直接失败，不设兜底版本'
       web-build-command:
         type: string
         default: ''
+        description: '非空则替换默认的 pnpm run build；依赖仍由本流程统一安装'
       frontend-stage-command:
         type: string
         default: ''
@@ -76,74 +69,61 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Resolve package manager
-        id: pm
+      # >>> pm-resolve
+      - name: Check frontend toolchain declaration
         if: inputs.web-dir != ''
+        shell: bash
         working-directory: ${{ inputs.web-dir }}
         run: |
-          case "${{ inputs.package-manager }}" in
-            npm|pnpm|bun) pm="${{ inputs.package-manager }}" ;;
+          # 只读 packageManager 声明，不探测 lockfile。
+          # 用 sed 而非 jq：binaries-matrix 会在 macos / windows runner 上跑同一段。
+          [ -f package.json ] || { echo "::error::找不到 ${{ inputs.web-dir }}/package.json"; exit 1; }
+          spec=$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json | head -1)
+          case "$spec" in
+            pnpm@[0-9]*) ver=${spec#*@}; ver=${ver%%[+?]*} ;;
+            bun@*) echo "::error::packageManager 为 $spec：本流程只支持 pnpm（setup-node 不缓存 bun）"; exit 1 ;;
+            npm@*) echo "::error::packageManager 为 $spec：本流程只支持 pnpm，请迁移该工程"; exit 1 ;;
             *)
-              if   [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm
-              elif [ -f bun.lock ] || [ -f bun.lockb ];                then pm=bun
-              else pm=npm; fi ;;
+              echo "::error::${{ inputs.web-dir }}/package.json 缺 packageManager 字段"
+              echo '修复：cd ${{ inputs.web-dir }}，在 "name" 之后插入一行：  "packageManager": "pnpm@11.22.0",'
+              exit 1 ;;
           esac
-          case "$pm" in
-            pnpm) lock="pnpm-lock.yaml" ;;
-            bun)  lock="bun.lock" ;;
-            *)    lock="package-lock.json" ;;
-          esac
-          echo "pm=$pm" >> "$GITHUB_OUTPUT"
-          echo "lockfile=${{ inputs.web-dir }}/$lock" >> "$GITHUB_OUTPUT"
+          [ -f pnpm-lock.yaml ] || { echo "::error::${{ inputs.web-dir }} 缺 pnpm-lock.yaml，提交前执行 pnpm install --lockfile-only"; exit 1; }
+          echo "pnpm $ver ← ${{ inputs.web-dir }}/package.json 的 packageManager"
+      # <<< pm-resolve
 
-      - name: Check node version file
-        id: nodever
-        if: inputs.web-dir != ''
-        run: |
-          if [ -f "${{ inputs.node-version-file }}" ]; then
-            echo "has-file=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has-file=false" >> "$GITHUB_OUTPUT"
-          fi
-
+      # pnpm 版本由 packageManager 字段决定（action 自己读），store 缓存挂在 pnpm 侧而非 setup-node 侧
       - uses: pnpm/action-setup@v6
-        if: inputs.web-dir != '' && steps.pm.outputs.pm == 'pnpm'
+        if: inputs.web-dir != ''
         with:
-          version: 11
+          package_json_file: ${{ inputs.web-dir }}/package.json
+          cache: true
 
       - uses: actions/setup-node@v7
-        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'true'
+        if: inputs.web-dir != ''
         with:
           node-version-file: ${{ inputs.node-version-file }}
-          cache: ${{ steps.pm.outputs.pm }}
-          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
-
-      - uses: actions/setup-node@v7
-        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'false'
-        with:
-          node-version: ${{ inputs.node-version }}
-          cache: ${{ steps.pm.outputs.pm }}
-          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
 
       - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ inputs.go-dir }}/go.mod
           cache-dependency-path: ${{ inputs.go-dir }}/go.sum
 
-      - name: Build & stage frontend
+      # >>> web-install
+      - name: Install & build frontend
         if: inputs.web-dir != ''
+        shell: bash
+        working-directory: ${{ inputs.web-dir }}
         run: |
-          cd "${{ inputs.web-dir }}"
+          # 依赖始终由本步安装；web-build-command 只替换构建命令，
+          # 否则传了该命令的仓库会在没有 node_modules 的情况下执行它。
+          pnpm install --frozen-lockfile
           if [ -n "${{ inputs.web-build-command }}" ]; then
             eval "${{ inputs.web-build-command }}"
           else
-            case "${{ steps.pm.outputs.pm }}" in
-              pnpm) pnpm install --frozen-lockfile && pnpm run build ;;
-              bun)  bun install --frozen-lockfile && bun run build ;;
-              *)    npm ci ${{ inputs.web-install-flags }} && npm run build ;;
-            esac
+            pnpm run build
           fi
-          cd "$GITHUB_WORKSPACE"
+      # <<< web-install
 
       # 与 web-dir 解耦：非 npm 前端（如 chaxin 的 sh web/build.sh）没有 web-dir，
       # 但同样需要在编译前生成 go:embed 依赖物。
@@ -198,74 +178,61 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Resolve package manager
-        id: pm
+      # >>> pm-resolve
+      - name: Check frontend toolchain declaration
         if: inputs.web-dir != ''
+        shell: bash
         working-directory: ${{ inputs.web-dir }}
         run: |
-          case "${{ inputs.package-manager }}" in
-            npm|pnpm|bun) pm="${{ inputs.package-manager }}" ;;
+          # 只读 packageManager 声明，不探测 lockfile。
+          # 用 sed 而非 jq：binaries-matrix 会在 macos / windows runner 上跑同一段。
+          [ -f package.json ] || { echo "::error::找不到 ${{ inputs.web-dir }}/package.json"; exit 1; }
+          spec=$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json | head -1)
+          case "$spec" in
+            pnpm@[0-9]*) ver=${spec#*@}; ver=${ver%%[+?]*} ;;
+            bun@*) echo "::error::packageManager 为 $spec：本流程只支持 pnpm（setup-node 不缓存 bun）"; exit 1 ;;
+            npm@*) echo "::error::packageManager 为 $spec：本流程只支持 pnpm，请迁移该工程"; exit 1 ;;
             *)
-              if   [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm
-              elif [ -f bun.lock ] || [ -f bun.lockb ];                then pm=bun
-              else pm=npm; fi ;;
+              echo "::error::${{ inputs.web-dir }}/package.json 缺 packageManager 字段"
+              echo '修复：cd ${{ inputs.web-dir }}，在 "name" 之后插入一行：  "packageManager": "pnpm@11.22.0",'
+              exit 1 ;;
           esac
-          case "$pm" in
-            pnpm) lock="pnpm-lock.yaml" ;;
-            bun)  lock="bun.lock" ;;
-            *)    lock="package-lock.json" ;;
-          esac
-          echo "pm=$pm" >> "$GITHUB_OUTPUT"
-          echo "lockfile=${{ inputs.web-dir }}/$lock" >> "$GITHUB_OUTPUT"
+          [ -f pnpm-lock.yaml ] || { echo "::error::${{ inputs.web-dir }} 缺 pnpm-lock.yaml，提交前执行 pnpm install --lockfile-only"; exit 1; }
+          echo "pnpm $ver ← ${{ inputs.web-dir }}/package.json 的 packageManager"
+      # <<< pm-resolve
 
-      - name: Check node version file
-        id: nodever
-        if: inputs.web-dir != ''
-        run: |
-          if [ -f "${{ inputs.node-version-file }}" ]; then
-            echo "has-file=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has-file=false" >> "$GITHUB_OUTPUT"
-          fi
-
+      # pnpm 版本由 packageManager 字段决定（action 自己读），store 缓存挂在 pnpm 侧而非 setup-node 侧
       - uses: pnpm/action-setup@v6
-        if: inputs.web-dir != '' && steps.pm.outputs.pm == 'pnpm'
+        if: inputs.web-dir != ''
         with:
-          version: 11
+          package_json_file: ${{ inputs.web-dir }}/package.json
+          cache: true
 
       - uses: actions/setup-node@v7
-        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'true'
+        if: inputs.web-dir != ''
         with:
           node-version-file: ${{ inputs.node-version-file }}
-          cache: ${{ steps.pm.outputs.pm }}
-          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
-
-      - uses: actions/setup-node@v7
-        if: inputs.web-dir != '' && steps.nodever.outputs.has-file == 'false'
-        with:
-          node-version: ${{ inputs.node-version }}
-          cache: ${{ steps.pm.outputs.pm }}
-          cache-dependency-path: ${{ steps.pm.outputs.lockfile }}
 
       - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ inputs.go-dir }}/go.mod
           cache-dependency-path: ${{ inputs.go-dir }}/go.sum
 
-      - name: Build & stage frontend
+      # >>> web-install
+      - name: Install & build frontend
         if: inputs.web-dir != ''
+        shell: bash
+        working-directory: ${{ inputs.web-dir }}
         run: |
-          cd "${{ inputs.web-dir }}"
+          # 依赖始终由本步安装；web-build-command 只替换构建命令，
+          # 否则传了该命令的仓库会在没有 node_modules 的情况下执行它。
+          pnpm install --frozen-lockfile
           if [ -n "${{ inputs.web-build-command }}" ]; then
             eval "${{ inputs.web-build-command }}"
           else
-            case "${{ steps.pm.outputs.pm }}" in
-              pnpm) pnpm install --frozen-lockfile && pnpm run build ;;
-              bun)  bun install --frozen-lockfile && bun run build ;;
-              *)    npm ci ${{ inputs.web-install-flags }} && npm run build ;;
-            esac
+            pnpm run build
           fi
-          cd "$GITHUB_WORKSPACE"
+      # <<< web-install
 
       - name: Stage frontend assets
         if: inputs.frontend-stage-command != ''
