@@ -24,7 +24,7 @@ on:
       cgo:
         type: string
         default: 'off'
-        description: 'off | musl | glibc'
+        description: 'off | glibc'
       version-var:
         type: string
         default: 'main.version'
@@ -82,11 +82,15 @@ jobs:
         working-directory: ${{ inputs.web-dir }}
         run: |
           case "${{ inputs.package-manager }}" in
-            npm|pnpm) pm="${{ inputs.package-manager }}" ;;
-            *) if [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm; else pm=npm; fi ;;
+            npm|pnpm|bun) pm="${{ inputs.package-manager }}" ;;
+            *)
+              if   [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm
+              elif [ -f bun.lock ] || [ -f bun.lockb ];                then pm=bun
+              else pm=npm; fi ;;
           esac
           case "$pm" in
             pnpm) lock="pnpm-lock.yaml" ;;
+            bun)  lock="bun.lock" ;;
             *)    lock="package-lock.json" ;;
           esac
           echo "pm=$pm" >> "$GITHUB_OUTPUT"
@@ -135,6 +139,7 @@ jobs:
           else
             case "${{ steps.pm.outputs.pm }}" in
               pnpm) pnpm install --frozen-lockfile && pnpm run build ;;
+              bun)  bun install --frozen-lockfile && bun run build ;;
               *)    npm ci ${{ inputs.web-install-flags }} && npm run build ;;
             esac
           fi
@@ -199,11 +204,15 @@ jobs:
         working-directory: ${{ inputs.web-dir }}
         run: |
           case "${{ inputs.package-manager }}" in
-            npm|pnpm) pm="${{ inputs.package-manager }}" ;;
-            *) if [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm; else pm=npm; fi ;;
+            npm|pnpm|bun) pm="${{ inputs.package-manager }}" ;;
+            *)
+              if   [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm
+              elif [ -f bun.lock ] || [ -f bun.lockb ];                then pm=bun
+              else pm=npm; fi ;;
           esac
           case "$pm" in
             pnpm) lock="pnpm-lock.yaml" ;;
+            bun)  lock="bun.lock" ;;
             *)    lock="package-lock.json" ;;
           esac
           echo "pm=$pm" >> "$GITHUB_OUTPUT"
@@ -252,6 +261,7 @@ jobs:
           else
             case "${{ steps.pm.outputs.pm }}" in
               pnpm) pnpm install --frozen-lockfile && pnpm run build ;;
+              bun)  bun install --frozen-lockfile && bun run build ;;
               *)    npm ci ${{ inputs.web-install-flags }} && npm run build ;;
             esac
           fi

@@ -50,7 +50,6 @@ jobs:
 
   image:
     needs: test
-    if: github.event_name != 'release'
     permissions:
       contents: read
       packages: write
@@ -115,7 +114,7 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 | `main-package` | string | `.` | 相对 `go-dir` |
 | `binary-name` | string | **必填** | |
 | `image-name` | string | **必填** | 如 `ghcr.io/felix2yu/shenshi` |
-| `cgo` | string | `off` | `off \| musl \| glibc` |
+| `cgo` | string | `off` | `off \| glibc` |
 | `dockerfile` | string | `Dockerfile` | |
 | `context` | string | `.` | |
 | `prebuilt-dest` | string | `bin` | 二进制落到 Docker 上下文的位置 |
@@ -149,18 +148,22 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 |---|---|
 | 推到默认分支 | `latest`、`sha-<40hex>` |
 | 推 `v1.2.3` tag | `v1.2.3`、`1.2`、`sha-<40hex>`、`latest` |
+| `release published` | 同「推 tag」——版本化镜像在发布事件也会构建（与 tag push 同一 ref 下幂等，不会产生重复镜像） |
 | PR | 只构建不推送 |
 
 多架构 manifest 由 `docker buildx imagetools create` 合并 amd64 + arm64。
 
+> 消费端的 `image` job **不再**用 `if: github.event_name != 'release'` 排除发布事件。
+> 这样「发布」既出二进制（release job）也出版本化镜像（image job），二者同时跑；
+> 新 tag 同时触发 push 与 release 两条流水线时，因 `concurrency.group` 共用 `refs/tags/vX` 会自动串行，不会并发写 GHCR。
+
 ---
 
-## 四、CGO 三态
+## 四、CGO 形态（off / glibc）
 
 | 值 | 适用 | 做法 |
 |---|---|---|
-| `off` | 10 个仓库 | `CGO_ENABLED=0` 静态链接，单 runner 交叉编译 |
-| `musl` | bili-history | 装 `musl-tools`，`CC=musl-gcc CGO_ENABLED=1` 静态链接 |
+| `off` | 12 个仓库 | `CGO_ENABLED=0` 静态链接，单 runner 交叉编译 |
 | `glibc` | **幕间（mujian）** | 在 `golang:1.27-bookworm`（glibc 2.36）容器内编译 + `readelf` 校验 glibc 下限 |
 
 **为什么幕间要在容器里编**：CGO 把二进制绑死在编译机的 glibc 上。若直接在 runner 上编，
@@ -222,6 +225,10 @@ var version = "dev"
   同时本地 `docker build` / `docker compose build` 前必须先编译出二进制
 - 若仓库原有「校验 Dockerfile 基镜像版本 == .nvmrc / go.mod」这类脚本，
   改为装配式后 Dockerfile 不再声明工具链版本，该校验失去对象，需一并调整
+- 包管理器解析已统一到三处 workflow（test / image / release），逻辑一致：`auto` 下按
+  `pnpm-lock → bun.lock/bun.lockb → package-lock.json` 顺序识别。`bun` 仅做检测与安装命令，
+  尚未接 `oven-sh/setup-bun`、且 `actions/setup-node` 的 `cache` 不支持 `bun`；真要接入 bun 仓库时，
+  需在该步补 setup-bun 并把 `cache` 改为条件取值
 
 ---
 
@@ -235,8 +242,8 @@ var version = "dev"
 | shenshi | `server` | `.` | `shenshi` | `ghcr.io/felix2yu/shenshi` | `web` | off | `frontend-stage-command` 拷 `web/dist` → `server/dist`（go:embed）；`test-packages: ./internal/...` |
 | qiansi | `.` | `./cmd/server` | `qiansi` | `ghcr.io/felix2yu/qiansi` | `web` | off | `web-install-flags: --legacy-peer-deps`；`codecov-disable-search: true`；前端另打 `web-dist.zip` |
 | mujian | `backend` | `.` | `mujian` | `ghcr.io/felix2yu/mujian` | `frontend` | **glibc** | `test-cgo: '1'`；`frontend-stage-command` 拷 `frontend/dist` → `backend/dist` |
-| huozhi | `backend` | `./cmd/huozhi-server` | `huozhi-server` | `ghcr.io/felix2yu/huozhi` | `frontend` | **musl** | `test-cgo: '1'`；`web-test-command: npm run test:coverage` + `frontend-coverage-file` |
-| qingye | `server` | `.` | `qingye` | `ghcr.io/felix2yu/qingye` | `web` | **musl** | `test-cgo: '1'` |
+| huozhi | `backend` | `./cmd/huozhi-server` | `huozhi-server` | `ghcr.io/felix2yu/huozhi` | `frontend` | off | `web-test-command: npm run test:coverage` + `frontend-coverage-file` |
+| qingye | `server` | `.` | `qingye` | `ghcr.io/felix2yu/qingye` | `web` | off | — |
 | diarum | `.` | `.` | `diarum` | `ghcr.io/felix2yu/diarum` | `site` | off | `version-var: main.Version`（本仓库变量是大写） |
 | bili-history | `backend` | `./cmd` | `bili-history` | `ghcr.io/felix2yu/bili-history` | `frontend` | off | `web-build-command: pnpm run generate`；`test-packages: ./config/... ./utils/... ./models/... ./database/...` |
 | bili-dl | `.` | `.` | `bili-dl` | —（无 Dockerfile，删掉 image job） | — | off | — |

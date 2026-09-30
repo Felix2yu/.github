@@ -6,12 +6,11 @@ name: Reusable · Image
 #   镜像构建从 ~10min 降到 ~1min；镜像内不再需要 Go / Node 工具链；
 #   二进制在 runner 上编，缓存命中率高，且能在推送前做 glibc 校验。
 #
-# CGO 三态（inputs.cgo）：
-#   off   —— 纯 Go，静态链接，可交叉编译（10 个仓库）
-#   musl  —— CGO + musl-gcc 静态链接（bili-history）
+# CGO 形态（inputs.cgo）：
+#   off   —— 纯 Go，静态链接，可交叉编译（12 个仓库）
 #   glibc —— CGO + glibc 动态链接，必须在固定 glibc 的容器里编译（幕间 mujian）
 #
-# 差异用三条互斥 step 表达，而不是三个 job：
+# 差异用两条互斥 step 表达，而不是两个 job：
 #   独立 job 会引入 needs 跳过语义（被 if 跳过的 job 会连带跳过下游），
 #   而条件 step 让 90% 的仓库「零感知」——它们的 job 里只有一条 step 命中。
 
@@ -35,7 +34,7 @@ on:
       cgo:
         type: string
         default: 'off'
-        description: 'off | musl | glibc'
+        description: 'off | glibc'
       dockerfile:
         type: string
         default: 'Dockerfile'
@@ -107,11 +106,15 @@ jobs:
         working-directory: ${{ inputs.web-dir }}
         run: |
           case "${{ inputs.package-manager }}" in
-            npm|pnpm) pm="${{ inputs.package-manager }}" ;;
-            *) if [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm; else pm=npm; fi ;;
+            npm|pnpm|bun) pm="${{ inputs.package-manager }}" ;;
+            *)
+              if   [ -f pnpm-lock.yaml ] || [ -f pnpm-workspace.yaml ]; then pm=pnpm
+              elif [ -f bun.lock ] || [ -f bun.lockb ];                then pm=bun
+              else pm=npm; fi ;;
           esac
           case "$pm" in
             pnpm) lock="pnpm-lock.yaml" ;;
+            bun)  lock="bun.lock" ;;
             *)    lock="package-lock.json" ;;
           esac
           echo "pm=$pm" >> "$GITHUB_OUTPUT"
@@ -160,6 +163,7 @@ jobs:
           else
             case "${{ steps.pm.outputs.pm }}" in
               pnpm) pnpm install --frozen-lockfile && pnpm run build ;;
+              bun)  bun install --frozen-lockfile && bun run build ;;
               *)    npm ci ${{ inputs.web-install-flags }} && npm run build ;;
             esac
           fi
@@ -171,7 +175,7 @@ jobs:
         if: inputs.frontend-stage-command != ''
         run: ${{ inputs.frontend-stage-command }}
 
-      # ---------------- CGO 三态：三条互斥 step ----------------
+      # ---------------- CGO 形态：两条互斥 step ----------------
 
       - name: Build binary (static)
         if: inputs.cgo == 'off'
@@ -180,18 +184,6 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}"
           CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} \
             go build -trimpath -ldflags="${{ inputs.build-ldflags }}" \
-              -o "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}" \
-              ${{ inputs.main-package }}
-
-      - name: Build binary (musl static)
-        if: inputs.cgo == 'musl'
-        working-directory: ${{ inputs.go-dir }}
-        run: |
-          sudo apt-get update && sudo apt-get install -y musl-tools
-          mkdir -p "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}"
-          CC=musl-gcc CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} \
-            go build -trimpath \
-              -ldflags="${{ inputs.build-ldflags }} -linkmode external -extldflags '-static'" \
               -o "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}" \
               ${{ inputs.main-package }}
 
