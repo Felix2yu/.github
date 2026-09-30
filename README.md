@@ -3,13 +3,21 @@
 13 个自研 Go 仓库共用的 GitHub Actions 规范。构建、版本发布、镜像构建、Codecov 上报
 四处逻辑各只有一份实现；各仓库只保留一个薄调用文件传参数。
 
+前端一律用 **pnpm**：工具与版本不靠 workflow 猜，而是读各仓库自己的声明——
+Node 版本读 `.nvmrc`，包管理器读 `package.json` 的 `packageManager` 字段，
+两者缺任何一项 CI 直接失败（不设兜底值）。
+
 ```
 Felix2yu/.github/.github/workflows/
 ├── reusable-test.yml      测试 + 覆盖率 → Codecov
 ├── reusable-image.yml     预编译 + 双架构镜像 + manifest 合并
 ├── reusable-release.yml   5 平台二进制 + 版本注入 + 校验和
-└── self-test.yml          本仓库门禁（actionlint）
+└── self-test.yml          本仓库门禁（actionlint + 重复块一致性检查）
 ```
+
+> 前端解析与安装两块代码在三个 reusable workflow 里有 4 份物理副本（release 有
+> `static` 与 `glibc` 两个 job），由 `scripts/check-pm-blocks.sh` 逐字节钉住。
+> 本地改完先 `bash scripts/check-pm-blocks.sh`。
 
 ---
 
@@ -69,13 +77,17 @@ jobs:
       binary-name: shenshi
 ```
 
-**三条必须遵守的规则**：
+**四条必须遵守的规则**：
 
 1. **引用必须 pin tag**，不能写 `@main`。`v1` 是移动 tag，`v1.0.0` 起是不可变 release tag。
 2. **权限只能向下收紧**——被调 workflow 里写了 `packages: write` 不等于真的拿到。
    调用方 job 必须自己声明，否则 GHCR push 会 403。
 3. **不要写 `secrets: inherit`**。`GITHUB_TOKEN` 由平台自动授予被调 workflow；
    只有 `CODECOV_TOKEN` 需要显式传。
+4. **有前端就交三件套**：`<web-dir>/package.json` 里的 `packageManager` 字段、
+   `<web-dir>/pnpm-lock.yaml`、仓库根的 `.nvmrc`。缺任何一项 CI 直接失败——
+   这是有意的：以前靠 lockfile 是否存在来猜包管理器，`bun.lock` 与
+   `package-lock.json` 并存时就把 CI 猜偏过（见第七节）。
 
 ---
 
@@ -85,19 +97,16 @@ jobs:
 
 | input | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `go-dir` | string | `.` | `go.mod` 所在目录 |
+| `go-dir` | string | `.` | `go.mod` 所在目录。**留空 = 本仓库没有 Go 后端**（如 WebMonitor 的 Python 后端），此时跳过 setup-go / vet / test / Go 覆盖率，只跑前端部分。默认值保持 `.` 是有意的：宁可让漏传的 Go 仓库报错，也不要静默不测。**仅 `reusable-test.yml` 支持空值**，image / release 仍要求有 Go 目录 |
 | `test-packages` | string | `./...` | `go test` 目标包；main 包带 `//go:embed` 时改 `./internal/...` |
 | `test-flags` | string | `-covermode=atomic` | 追加参数，如 `-race` |
 | `test-cgo` | string | `''`（沿用 runner 的 1） | 显式覆盖 `CGO_ENABLED`。`-race` 与 CGO 依赖都要求 1——测试产物不发布、静态与否无意义，所以默认不关掉它；确需关闭填 `0` |
 | `vet` | boolean | `true` | |
 | `pre-test-command` | string | `''` | 在 `go-dir` 内执行，生成 `go:embed` 依赖物 |
 | `web-dir` | string | `''` | 空 = 无前端 |
-| `node-version-file` | string | `.nvmrc` | |
-| `node-version` | string | `22` | 无 `.nvmrc` 时的兜底 |
-| `package-manager` | string | `auto` | `auto \| npm \| pnpm \| bun` |
-| `web-install-flags` | string | `''` | 如 qiansi 的 `--legacy-peer-deps` |
-| `web-build-command` | string | `''` | 非空则完全接管前端构建 |
-| `web-test-command` | string | `''` | 如 huozhi 的 `npm run test:coverage` |
+| `node-version-file` | string | `.nvmrc` | 相对仓库根。读不到就失败，**不设兜底版本** |
+| `web-build-command` | string | `''` | 非空则替换默认的 `pnpm run build`；依赖仍由本流程统一 `pnpm install --frozen-lockfile` 安装 |
+| `web-test-command` | string | `''` | 如 huozhi 的 `pnpm run test:coverage` |
 | `coverage-file` | string | `coverage.out` | 相对 `go-dir` |
 | `frontend-coverage-file` | string | `''` | 相对仓库根 |
 | `codecov-flag-go` / `codecov-flag-web` | string | `backend` / `frontend` | |
@@ -105,6 +114,9 @@ jobs:
 | `runs-on` | string | `ubuntu-24.04` | |
 
 secrets：`CODECOV_TOKEN`（`required: false`）
+
+> **包管理器不是入参**：读 `<web-dir>/package.json` 的 `packageManager`，只接受 `pnpm@<版本>`。
+> 写成 `npm@` / `bun@` 或缺字段都会让 job 直接失败，并打印可复制的修复行。
 
 ### reusable-image.yml
 
@@ -119,7 +131,7 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 | `context` | string | `.` | |
 | `prebuilt-dest` | string | `bin` | 二进制落到 Docker 上下文的位置 |
 | `build-ldflags` | string | `-s -w` | |
-| `web-dir` / `node-*` / `package-manager` / `web-install-flags` / `web-build-command` | | | 同 test |
+| `web-dir` / `node-version-file` / `web-build-command` / `frontend-stage-command` | | | 同 test |
 | `frontend-stage-command` | string | `''` | 仓库根执行：把前端产物摆到 `go:embed` 位置和/或 `dist/` |
 | `runner-amd64` / `runner-arm64` | string | `ubuntu-24.04` / `ubuntu-24.04-arm` | |
 | `build-args` | string | `''` | |
@@ -131,10 +143,10 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 |---|---|---|---|
 | `go-dir` / `main-package` / `binary-name` | | | 同上 |
 | `cgo` | string | `off` | `off` 走单 runner 交叉编译；非 `off` 走各平台原生 runner |
-| `version-var` | string | `main.version` | 被注入的符号；diiarum = `main.Version` |
+| `version-var` | string | `main.version` | 被注入的符号；diarum = `main.Version` |
 | `release-platforms` | string | `linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64` | |
 | `build-ldflags` | string | `-s -w` | |
-| `web-dir` / node 组 / `frontend-stage-command` | | | 同 image |
+| `web-dir` / `node-version-file` / `web-build-command` / `frontend-stage-command` | | | 同 image |
 | `pre-build-command` | string | `''` | 编译前在仓库根执行 |
 | `extra-files` | string | `''` | 额外挂到 release 的文件 |
 
@@ -181,7 +193,8 @@ glibc 下限就成了 GitHub runner 轮换的属性——`ubuntu-latest` 从 24.
 | 版本 | 来源 |
 |---|---|
 | Go | 读 `<go-dir>/go.mod` |
-| Node | 读 `.nvmrc`；无该文件时用 `node-version` 兜底 |
+| Node | 读仓库根的 `.nvmrc`；缺文件直接失败，**没有兜底版本** |
+| pnpm | 读 `<web-dir>/package.json` 的 `packageManager`；`pnpm/action-setup` 自己解析 |
 | 发布版本 | git tag → `-X main.version=<tag>` 注入二进制 |
 | 镜像 tag | metadata-action 从 ref / semver / sha 自动推导 |
 
@@ -201,8 +214,9 @@ var version = "dev"
 
 ## 六、升级流程
 
-1. 在本仓库改 workflow → `self-test.yml`（actionlint）必须绿
-2. 若改了 input 契约：新增可选参数（向后兼容）或同步更新全部 13 个调用方
+1. 在本仓库改 workflow → `self-test.yml`（actionlint + `scripts/check-pm-blocks.sh`）必须绿
+2. 若改了 input 契约：新增可选参数（向后兼容）或同步更新全部 13 个调用方。
+   **删参数尤其危险**——调用方多传未声明的 input 会让 job 直接 `startup_failure`。
 3. 打不可变 tag：`git tag v1.1.0 && git push origin v1.1.0`
 4. 移动 `v1` 到新提交：`git tag -f v1 && git push -f origin v1`
 5. 批量升级调用方时开 PR，逐个验证（Dependabot **不会**更新 reusable workflow 的 ref）
@@ -225,10 +239,20 @@ var version = "dev"
   同时本地 `docker build` / `docker compose build` 前必须先编译出二进制
 - 若仓库原有「校验 Dockerfile 基镜像版本 == .nvmrc / go.mod」这类脚本，
   改为装配式后 Dockerfile 不再声明工具链版本，该校验失去对象，需一并调整
-- 包管理器解析已统一到三处 workflow（test / image / release），逻辑一致：`auto` 下按
-  `pnpm-lock → bun.lock/bun.lockb → package-lock.json` 顺序识别。`bun` 仅做检测与安装命令，
-  尚未接 `oven-sh/setup-bun`、且 `actions/setup-node` 的 `cache` 不支持 `bun`；真要接入 bun 仓库时，
-  需在该步补 setup-bun 并把 `cache` 改为条件取值
+- **包管理器只用 pnpm，且只读声明、不探 lockfile**。解析块在 4 处（test / image / release×2）
+  物理存在，由 `scripts/check-pm-blocks.sh` 逐字节校验——改一处必须四处一起改。
+- **npm 风格写在 package.json 顶层的 `overrides` 不会被 pnpm 读取**（pnpm 认 `pnpm-workspace.yaml`
+  的 `overrides:`，或 package.json 的 `pnpm.overrides`）。迁移前它很可能一直是空转的，
+  迁完用 `pnpm why <包名>` 逐条核实是否真的生效。
+- **`--legacy-peer-deps` 在 pnpm 没有对应物**，该入参已废除。peer 冲突写进各仓
+  `pnpm-workspace.yaml` 的 `peerDependencyRules.allowedVersions`
+  （例：qiansi 的 `typescript ^6` 与 `@typescript/native`＝TS 7 并存）。
+- **pnpm 10+ 默认不执行依赖的构建脚本**。本仓群唯一带 install script 的包是 macOS-only 的
+  `fsevents`，CI 跑 linux 不受影响；本地需要时在该仓 `pnpm-workspace.yaml` 写
+  `onlyBuiltDependencies: [fsevents]`。
+- `binaries-matrix` job 会落在 macos / windows runner 上，因此解析与安装块**必须写 `shell: bash`**
+  （默认 pwsh 下 `case`、`[ -f ]` 直接语法失败），并用 `sed` 而非 `jq` 取 `packageManager`
+  ——windows runner 不保证有 jq，而此刻 `setup-node` 还没跑。
 
 ---
 
@@ -237,16 +261,28 @@ var version = "dev"
 套用时**需要按仓库调整的只有 6 类键**：`go-dir`、`main-package`、`binary-name`、
 `image-name`、`web-dir` + `frontend-stage-command`、`test-packages`。
 
+带前端的仓库另外要各交一份三件套（见第一节规则 4），`packageManager` **全组织统一**：
+`"packageManager": "pnpm@11.22.0"`——它是 pnpm 版本的唯一来源，workflow 里不再有 `version: 11`。
+Node 同样拉平到一个版本：8 个前端仓库的仓库根 `.nvmrc` 现在都是 `26`，
+与 `qingye/Dockerfile`、`WebMonitor/Dockerfile.slim` 的 `node:26-alpine` 对齐；
+新增仓库必须交 `.nvmrc`，否则 `setup-node` 的 `node-version-file` 直接读不到而失败（这是设计，不是 bug）。
+
+> 选 11.22.0 而不是更新的 12：现有 `pnpm-lock.yaml` 全是 `lockfileVersion: 9.0`，
+> 由 pnpm 11 生成、CI 也一直在装 11。升 pnpm 大版本等于同时赌一次 lock 格式与
+> `--frozen-lockfile` 的匹配，应作为独立一次 PR：先在 canary 仓库清缓存跑通再铺开。
+> 本机装的 pnpm 若比声明新，pnpm 会自己按 `packageManager` 切到 11.22.0（需要联网解析一次）。
+
 | 仓库 | go-dir | main-package | binary-name | image-name | web-dir | cgo | 需额外设置 |
 |---|---|---|---|---|---|---|---|
 | shenshi | `server` | `.` | `shenshi` | `ghcr.io/felix2yu/shenshi` | `web` | off | `frontend-stage-command` 拷 `web/dist` → `server/dist`（go:embed）；`test-packages: ./internal/...` |
-| qiansi | `.` | `./cmd/server` | `qiansi` | `ghcr.io/felix2yu/qiansi` | `web` | off | `web-install-flags: --legacy-peer-deps`；`codecov-disable-search: true`；前端另打 `web-dist.zip` |
+| qiansi | `.` | `./cmd/server` | `qiansi` | `ghcr.io/felix2yu/qiansi` | `web` | off | `codecov-disable-search: true`；前端另打 `web-dist.zip`；TS 6/7 并存的 peer 规则写在 `web/pnpm-workspace.yaml` |
 | mujian | `backend` | `.` | `mujian` | `ghcr.io/felix2yu/mujian` | `frontend` | **glibc** | `test-cgo: '1'`；`frontend-stage-command` 拷 `frontend/dist` → `backend/dist` |
-| huozhi | `backend` | `./cmd/huozhi-server` | `huozhi-server` | `ghcr.io/felix2yu/huozhi` | `frontend` | off | `web-test-command: npm run test:coverage` + `frontend-coverage-file` |
-| qingye | `server` | `.` | `qingye` | `ghcr.io/felix2yu/qingye` | `web` | off | — |
+| huozhi | `backend` | `./cmd/huozhi-server` | `huozhi-server` | `ghcr.io/felix2yu/huozhi` | `frontend` | off | `web-test-command: pnpm run test:coverage` + `frontend-coverage-file` |
+| qingye | `server` | `.` | `qingye` | `ghcr.io/felix2yu/qingye` | `web` | off | `web-build-command: pnpm run check && pnpm run build` + `web-test-command: pnpm run test`（原来自有的 web-check job 已删，SvelteKit 的 check 走这里） |
 | diarum | `.` | `.` | `diarum` | `ghcr.io/felix2yu/diarum` | `site` | off | `version-var: main.Version`（本仓库变量是大写） |
 | bili-history | `backend` | `./cmd` | `bili-history` | `ghcr.io/felix2yu/bili-history` | `frontend` | off | `web-build-command: pnpm run generate`；`test-packages: ./config/... ./utils/... ./models/... ./database/...` |
 | bili-dl | `.` | `.` | `bili-dl` | —（无 Dockerfile，删掉 image job） | — | off | — |
+| WebMonitor | `''`（后端是 Python） | — | — | —（自有 Docker 流程） | `frontend` | — | 只套用 `reusable-test.yml`：`go-dir: ''` 让 Go 步骤全部跳过；镜像仍由 `Dockerfile.slim` / `frontend/Dockerfile` 自己构建，它们的 Node 阶段用 `node -p "...packageManager.slice(5)"` 解析 pnpm 版本 |
 | qbhive | `.` | `./cmd/server` | `qbhive` | `ghcr.io/felix2yu/qbhive` | — | off | — |
 | yuexi | `.` | `.` | `yuexi` | `ghcr.io/felix2yu/yuexi` | — | off | `test-flags: -race -covermode=atomic` |
 | chaxin | `.` | `./cmd/server` | `chaxin` | `ghcr.io/felix2yu/chaxin` | — | off | 前端非 npm：`frontend-stage-command: sh web/build.sh` |
