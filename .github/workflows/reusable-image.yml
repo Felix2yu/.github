@@ -122,6 +122,9 @@ jobs:
         with:
           package_json_file: ${{ inputs.web-dir }}/package.json
           cache: true
+          # 不写这行会退回默认值 pnpm-lock.yaml（仓库根）；锁在子目录时 store 路径解析不到，
+          # 整个 action 以「Some specified paths were not resolved」失败。
+          cache-dependency-path: ${{ inputs.web-dir }}/pnpm-lock.yaml
 
       - uses: actions/setup-node@v7
         if: inputs.web-dir != ''
