@@ -98,9 +98,11 @@ jobs:
         with:
           package_json_file: ${{ inputs.web-dir }}/package.json
           cache: true
-          # 不写这行会退回默认值 pnpm-lock.yaml（仓库根）；锁在子目录时 store 路径解析不到，
-          # 整个 action 以「Some specified paths were not resolved」失败。
-          cache-dependency-path: ${{ inputs.web-dir }}/pnpm-lock.yaml
+          # 这个 action 的输入是下划线风格（不是 setup-node 的连字符写法）；写成 cache-dependency-path
+          # 会被 runner 当 Unexpected input 静默忽略，退回默认的仓库根 pnpm-lock.yaml。
+          # 本仓群的锁在 web/ frontend/ site/ 子目录，hashFiles 解析不到时 action 直接抛
+          # 「Some specified paths were not resolved」，整个 image job 红。
+          cache_dependency_path: ${{ inputs.web-dir }}/pnpm-lock.yaml
 
       - uses: actions/setup-node@v7
         if: inputs.web-dir != ''
@@ -210,9 +212,11 @@ jobs:
         with:
           package_json_file: ${{ inputs.web-dir }}/package.json
           cache: true
-          # 不写这行会退回默认值 pnpm-lock.yaml（仓库根）；锁在子目录时 store 路径解析不到，
-          # 整个 action 以「Some specified paths were not resolved」失败。
-          cache-dependency-path: ${{ inputs.web-dir }}/pnpm-lock.yaml
+          # 这个 action 的输入是下划线风格（不是 setup-node 的连字符写法）；写成 cache-dependency-path
+          # 会被 runner 当 Unexpected input 静默忽略，退回默认的仓库根 pnpm-lock.yaml。
+          # 本仓群的锁在 web/ frontend/ site/ 子目录，hashFiles 解析不到时 action 直接抛
+          # 「Some specified paths were not resolved」，整个 image job 红。
+          cache_dependency_path: ${{ inputs.web-dir }}/pnpm-lock.yaml
 
       - uses: actions/setup-node@v7
         if: inputs.web-dir != ''
