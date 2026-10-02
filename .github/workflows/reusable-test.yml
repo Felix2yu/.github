@@ -220,21 +220,51 @@ jobs:
           PYTHON: ${{ inputs.docs-python }}
         run: ${{ inputs.docs-command }}
 
+      # build-tags 形如 "sqlite_omit_load_extension osusergo netgo"（空格分隔多个）。
+      # 必须用数组 + "${TAGS[@]}" 展开，不能把 format() 结果直接拼进命令行：
+      # 未加引号时shell 按空格拆词，-tags=sqlite_omit_load_extension 之外的词
+      # 会被当成包路径，报 "package osusergo is not in std"。
+      # 本地直接敲 go vet -tags="a b c" 是通过 YAML run 块的，验不到这一点——
+      # 该故障只在 CI 上暴露（ntfy 首次接入时）。
+      # 注意不能用 ${TAGS[@]+"${TAGS[@]}"}：那在 set -u 下虽不报错，
+      # 但空数组会展开出一个空串参数（go vet '' 被当成包路径）。
+      # 故显式按长度分支。
       - name: go vet
         if: inputs.go-dir != '' && inputs.vet
         working-directory: ${{ inputs.go-dir }}
-        run: go vet ${{ inputs.build-tags && format('-tags={0}', inputs.build-tags) || '' }} ${{ inputs.test-packages }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAGS=()
+          if [ -n "${{ inputs.build-tags }}" ]; then
+            TAGS+=(-tags="${{ inputs.build-tags }}")
+          fi
+          if [ ${#TAGS[@]} -eq 0 ]; then
+            go vet ${{ inputs.test-packages }}
+          else
+            go vet "${TAGS[@]}" ${{ inputs.test-packages }}
+          fi
 
       - name: go test
         if: inputs.go-dir != ''
         working-directory: ${{ inputs.go-dir }}
+        shell: bash
         run: |
+          set -euo pipefail
           # 只在显式指定时才覆盖 CGO_ENABLED：默认沿用 runner 的 1，
           # 这样 -race（要求 cgo）与 CGO 依赖都能开箱工作。
           if [ -n "${{ inputs.test-cgo }}" ]; then
             export CGO_ENABLED="${{ inputs.test-cgo }}"
           fi
-          go test ${{ inputs.test-flags }} ${{ inputs.build-tags && format('-tags={0}', inputs.build-tags) || '' }} -coverprofile=${{ inputs.coverage-file }} ${{ inputs.test-packages }}
+          TAGS=()
+          if [ -n "${{ inputs.build-tags }}" ]; then
+            TAGS+=(-tags="${{ inputs.build-tags }}")
+          fi
+          if [ ${#TAGS[@]} -eq 0 ]; then
+            go test ${{ inputs.test-flags }} -coverprofile=${{ inputs.coverage-file }} ${{ inputs.test-packages }}
+          else
+            go test ${{ inputs.test-flags }} "${TAGS[@]}" -coverprofile=${{ inputs.coverage-file }} ${{ inputs.test-packages }}
+          fi
 
       - name: Resolve coverage path
         id: cov
