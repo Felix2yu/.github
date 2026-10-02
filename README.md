@@ -8,11 +8,15 @@ Node 版本读 `.nvmrc`，包管理器读 `package.json` 的 `packageManager` �
 两者缺任何一项 CI 直接失败（不设兜底值）。
 
 ```
-Felix2yu/.github/.github/workflows/
-├── reusable-test.yml      测试 + 覆盖率 → Codecov
-├── reusable-image.yml     预编译 + 双架构镜像 + manifest 合并
-├── reusable-release.yml   5 平台二进制 + 版本注入 + 校验和
-└── self-test.yml          本仓库门禁（actionlint + 重复块一致性检查）
+Felix2yu/.github/
+├── .github/workflows/
+│   ├── reusable-test.yml      测试 + 覆盖率 → Codecov
+│   ├── reusable-image.yml     预编译 + 双架构镜像 + manifest 合并
+│   ├── reusable-release.yml   5 平台二进制 + 版本注入 + 校验和
+│   └── self-test.yml          本仓库门禁（actionlint + 重复块一致性检查）
+└── scripts/
+    ├── check-pm-blocks.sh         前端解析/安装重复块逐字节一致性
+    └── check-reusable-inputs.py   调用方 input 契约校验（本地跑）
 ```
 
 > 前端解析与安装两块代码在三个 reusable workflow 里有 4 份物理副本（release 有
@@ -101,6 +105,10 @@ jobs:
 | `test-packages` | string | `./...` | `go test` 目标包；main 包带 `//go:embed` 时改 `./internal/...` |
 | `test-flags` | string | `-covermode=atomic` | 追加参数，如 `-race` |
 | `test-cgo` | string | `''`（沿用 runner 的 1） | 显式覆盖 `CGO_ENABLED`。`-race` 与 CGO 依赖都要求 1——测试产物不发布、静态与否无意义，所以默认不关掉它；确需关闭填 `0` |
+| `build-tags` | string | `''` | 传给 `go vet` / `go test` 的 `-tags`。ntfy = `sqlite_omit_load_extension osusergo netgo` |
+| `docs-command` | string | `''` | 仓库根执行，`go vet` 之前。生成 npm 之外的前置产物（如 ntfy 的 mkdocs 文档 → `server/docs`）。命令须保证无缓存时也能跑通 |
+| `docs-cache-path` / `docs-cache-key-files` | string | `''` / `requirements.txt` | 对该路径做 `actions/cache`，纯加速用 |
+| `docs-python` | string | `python3` | 注入给 `docs-command` 的 `$PYTHON` |
 | `vet` | boolean | `true` | |
 | `pre-test-command` | string | `''` | 在 `go-dir` 内执行，生成 `go:embed` 依赖物 |
 | `web-dir` | string | `''` | 空 = 无前端 |
@@ -126,7 +134,10 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 | `main-package` | string | `.` | 相对 `go-dir` |
 | `binary-name` | string | **必填** | |
 | `image-name` | string | **必填** | 如 `ghcr.io/felix2yu/shenshi` |
-| `cgo` | string | `off` | `off \| glibc` |
+| `cgo` | string | `off` | `off \| glibc \| static` |
+| `build-tags` | string | `''` | 传给 `go build` 的 `-tags` |
+| `static-ldflags` | string | `-linkmode=external -extldflags=-static` | `cgo=static` 时追加的链接选项 |
+| `static-verify-command` | string | `''` | 非空则以它替代默认的「无 INTERP 段」校验 |
 | `dockerfile` | string | `Dockerfile` | |
 | `context` | string | `.` | |
 | `prebuilt-dest` | string | `bin` | 二进制落到 Docker 上下文的位置 |
@@ -143,6 +154,12 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 |---|---|---|---|
 | `go-dir` / `main-package` / `binary-name` | | | 同上 |
 | `cgo` | string | `off` | `off` 走单 runner 交叉编译；非 `off` 走各平台原生 runner |
+| `build-tags` | string | `''` | CGO 平台（linux）的 `-tags` |
+| `cgo-off-platforms` | string | `''` | 逗号分隔的 goos，强制 `CGO_ENABLED=0`。ntfy = `darwin,windows` |
+| `build-tags-cgo-off` | string | `''` | 上述平台追加的 `-tags`。ntfy = `noserver` |
+| `static-ldflags` | string | `-linkmode=external -extldflags=-static` | `cgo=static` 时追加的链接选项 |
+| `extra-version-vars` | string | `''` | 额外 `-X` 注入。ntfy = `main.commit={{sha8}} main.date={{date}}`（占位符在 shell 里展开） |
+| `docs-*` 组 | | | 同 image |
 | `version-var` | string | `main.version` | 被注入的符号；diarum = `main.Version` |
 | `release-platforms` | string | `linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64` | |
 | `build-ldflags` | string | `-s -w` | |
@@ -171,12 +188,13 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 
 ---
 
-## 四、CGO 形态（off / glibc）
+## 四、CGO 形态（off / glibc / static）
 
 | 值 | 适用 | 做法 |
 |---|---|---|
-| `off` | 12 个仓库 | `CGO_ENABLED=0` 静态链接，单 runner 交叉编译 |
+| `off` | 12 个仓库 | `CGO_ENABLED=0` 静态链接，单runner 交叉编译 |
 | `glibc` | **幕间（mujian）** | 在 `golang:1.27-bookworm`（glibc 2.36）容器内编译 + `readelf` 校验 glibc 下限 |
+| `static` | **ntfy** | 在 `golang:1.27-alpine` 容器内 `apk add build-base` 后编译，追加 `-extldflags=-static`；再用 `readelf` 断言**无 INTERP 段** |
 
 **为什么幕间要在容器里编**：CGO 把二进制绑死在编译机的 glibc 上。若直接在 runner 上编，
 glibc 下限就成了 GitHub runner 轮换的属性——`ubuntu-latest` 从 24.04（glibc 2.39）滚到
@@ -185,6 +203,15 @@ glibc 下限就成了 GitHub runner 轮换的属性——`ubuntu-latest` 从 24.
 
 配套的 `Verify glibc floor` 步骤从 Dockerfile 读运行镜像版本自动比对，
 升基镜像时会自动放宽这条检查。
+
+**为什么 ntfy 走 `static`**：它的运行镜像是 alpine（musl），而 go-sqlite3 必须开 CGO。
+`CGO_ENABLED=1` 默认产出的是 glibc 动态链接二进制，扔进 alpine 会在启动时
+`Error loading shared library libc.musl-x86_64.so.1`，且 CI 全程是绿的。
+所以既要在 alpine 里编（避免 glibc 依赖），又要 `-extldflags=-static`（连 musl 也不依赖），
+最后用「无 INTERP 段」把这件事钉死——`readelf -l | grep INTERP` 是唯一能证明「真静态」的手段。
+
+> `golang:*-alpine` **不含 gcc**，必须先 `apk add --no-cache build-base`，
+> 否则报 `C compiler "gcc" not found`。这一步已内置在 workflow 里。
 
 ---
 
@@ -215,11 +242,15 @@ var version = "dev"
 ## 六、升级流程
 
 1. 在本仓库改 workflow → `self-test.yml`（actionlint + `scripts/check-pm-blocks.sh`）必须绿
-2. 若改了 input 契约：新增可选参数（向后兼容）或同步更新全部 13 个调用方。
+2. 跑 `scripts/check-reusable-inputs.py`（需 `pip install pyyaml`）——
+   它比对全部调用方 `ci.yml` 传的 input 与本仓库声明的是否一一对应。
+   **这一步不能省**：传了未声明的 input，GitHub 只给 `startup_failure`，
+   没有 job、没有日志，actionlint 也推不出远端契约。
+3. 若改了 input 契约：新增可选参数（向后兼容）或同步更新全部 13 个调用方。
    **删参数尤其危险**——调用方多传未声明的 input 会让 job 直接 `startup_failure`。
-3. 打不可变 tag：`git tag v1.1.0 && git push origin v1.1.0`
-4. 移动 `v1` 到新提交：`git tag -f v1 && git push -f origin v1`
-5. 批量升级调用方时开 PR，逐个验证（Dependabot **不会**更新 reusable workflow 的 ref）
+4. 打不可变 tag：`git tag v1.1.0 && git push origin v1.1.0`
+5. 移动 `v1` 到新提交：`git tag -f v1 && git push -f origin v1`
+6. 批量升级调用方时开 PR，逐个验证（Dependabot **不会**更新 reusable workflow 的 ref）
 
 ---
 
@@ -288,6 +319,23 @@ Node 同样拉平到一个版本：8 个前端仓库的仓库根 `.nvmrc` 现在
 | chaxin | `.` | `./cmd/server` | `chaxin` | `ghcr.io/felix2yu/chaxin` | — | off | 前端非 npm：`frontend-stage-command: sh web/build.sh` |
 | liuxia | `.` | `.` | `liuxia` | `ghcr.io/felix2yu/liuxia` | — | off | `test-flags: -race -covermode=atomic` |
 | docker-db-auto-backup | `.` | `.` | `db-auto-backup` | `ghcr.io/felix2yu/docker-db-auto-backup` | — | off | 保留 lint / e2e 两个仓库自有 job |
+| ntfy | `.` | `.` | `ntfy` | `ghcr.io/felix2yu/ntfy` | `web` | **static** | 见下方专项说明 |
+
+### ntfy 的特殊参数（唯一用到全部新input 的仓库）
+
+| input | 值 | 为什么 |
+|---|---|---|
+| `build-tags` | `sqlite_omit_load_extension osusergo netgo` | 去掉 `sqlite3_load_extension`、切 osusergo / netgo，与上游 goreleaser 一致 |
+| `cgo` | `static` | go-sqlite3 必须 CGO，运行镜像是 alpine →必须完全静态 |
+| `prebuilt-dest` | `.` | 上游 `Dockerfile` 是 `COPY ntfy /usr/bin`，二进制须落仓库根；改 Dockerfile 会打断 `.goreleaser.yml` 的 `dockers` 段（本地 `make cli` 仍在用） |
+| `docs-command` | mkdocs 三行 | `server/server.go` 有 `//go:embed docs`，而 `server/docs` 在 `.gitignore` 里。**干净 clone 上 `go build ./...` 直接失败**，必须先`mkdocs build` |
+| `frontend-stage-command` | 搬 `web/build` → `server/site` | 对应 `//go:embed site`。含 `index.html → app.html` 改名与删 `config.js`，与上游 Makefile `web-build` 逐步对齐 |
+| `cgo-off-platforms` / `build-tags-cgo-off` | `darwin,windows` / `noserver` | 这两个平台不需要 sqlite，用纯 Go + `noserver`（纯客户端），与上游 goreleaser 分档一致 |
+| `extra-version-vars` | `main.commit` / `main.date` | ntfy 的 `--version` 展示三段信息，共享流程只注入 `main.version` |
+
+> **`docs-command` 不是可选装饰**：ntfy 是本仓群里唯一有「npm 之外的前置产物」的仓库。
+> `server/site` 与 `server/docs` 都不在版本库里，CI 必须自己生成，
+> 否则 `go vet ./...` / `go build` 在第一步就报 `pattern docs: no matching files found`。
 
 **版本号不需要手写**：Go 版本读 `go.mod`、Node 版本读 `.nvmrc`、发布版本来自 git tag、
 镜像 tag 由 metadata-action 推导。

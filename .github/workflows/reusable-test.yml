@@ -29,6 +29,10 @@ on:
         type: string
         default: ''
         description: '留空 = 沿用 runner 默认（1）。-race 与 CGO 依赖都要求 1，而测试产物不发布、静态与否无意义，所以默认不关掉它；确需关闭时填 0'
+      build-tags:
+        type: string
+        default: ''
+        description: '传给 go vet / go test 的 -tags，空格分隔。如 ntfy 的 sqlite_omit_load_extension osusergo netgo。与 image/release 的同名 input 保持一致'
       vet:
         type: boolean
         default: true
@@ -36,6 +40,22 @@ on:
         type: string
         default: ''
         description: '在 go-dir 内执行，用于生成 go:embed 依赖物（如 chaxin 的 sh ../web/build.sh）'
+      docs-command:
+        type: string
+        default: ''
+        description: '在仓库根执行，go vet 之前。生成 npm 之外的前置产物（如 ntfy 的 mkdocs 文档 → server/docs）。命令须自行保证幂等'
+      docs-cache-path:
+        type: string
+        default: ''
+        description: '非空则对该路径做 actions/cache（如 ~/.cache/pip）。纯加速用，命令本身须保证无缓存也能跑通'
+      docs-cache-key-files:
+        type: string
+        default: 'requirements.txt'
+        description: '逗号分隔的仓库根 glob，参与 docs 缓存 key。ntfy = requirements.txt'
+      docs-python:
+        type: string
+        default: 'python3'
+        description: '注入给 docs-command 的 $PYTHON'
       frontend-stage-command:
         type: string
         default: ''
@@ -164,10 +184,46 @@ jobs:
         if: inputs.frontend-stage-command != ''
         run: ${{ inputs.frontend-stage-command }}
 
+      # hashFiles() 不接受逗号分隔的多值（会整体当成一个字面 pattern 而匹配不到），
+      # 所以这里先在 bash 里把 docs-cache-key-files 拆成多个 pattern 分别求值。
+      - name: Resolve docs cache key
+        id: docskey
+        if: inputs.docs-command != '' && inputs.docs-cache-path != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra pats <<< "${{ inputs.docs-cache-key-files }}"
+          h=""
+          for p in "${pats[@]}"; do
+            p="$(printf '%s' "$p" | tr -d '[:space:]')"
+            [ -n "$p" ] || continue
+            if [ -f "$p" ]; then
+              h="${h}_$(printf '%s' "$p" | tr -c '[:alnum:]._-' '_')-$(sha256sum "$p" | cut -c1-16)"
+            else
+              h="${h}_$(printf '%s' "$p" | tr -c '[:alnum:]._-' '_')-missing"
+            fi
+          done
+          [ -n "$h" ] || h="nohash"
+          echo "key=docs-${{ runner.os }}-$h" >> "$GITHUB_OUTPUT"
+
+      - name: Restore docs cache
+        if: inputs.docs-command != '' && inputs.docs-cache-path != ''
+        uses: actions/cache@v6
+        with:
+          path: ${{ inputs.docs-cache-path }}
+          key: ${{ steps.docskey.outputs.key }}
+
+      - name: Build docs assets
+        if: inputs.docs-command != ''
+        shell: bash
+        env:
+          PYTHON: ${{ inputs.docs-python }}
+        run: ${{ inputs.docs-command }}
+
       - name: go vet
         if: inputs.go-dir != '' && inputs.vet
         working-directory: ${{ inputs.go-dir }}
-        run: go vet ${{ inputs.test-packages }}
+        run: go vet ${{ inputs.build-tags && format('-tags={0}', inputs.build-tags) || '' }} ${{ inputs.test-packages }}
 
       - name: go test
         if: inputs.go-dir != ''
@@ -178,7 +234,7 @@ jobs:
           if [ -n "${{ inputs.test-cgo }}" ]; then
             export CGO_ENABLED="${{ inputs.test-cgo }}"
           fi
-          go test ${{ inputs.test-flags }} -coverprofile=${{ inputs.coverage-file }} ${{ inputs.test-packages }}
+          go test ${{ inputs.test-flags }} ${{ inputs.build-tags && format('-tags={0}', inputs.build-tags) || '' }} -coverprofile=${{ inputs.coverage-file }} ${{ inputs.test-packages }}
 
       - name: Resolve coverage path
         id: cov

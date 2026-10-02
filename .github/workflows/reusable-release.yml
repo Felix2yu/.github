@@ -6,6 +6,9 @@ name: Reusable · Release
 # cgo=off   → 单 runner 交叉编译 5 平台（10 个仓库，秒级）
 # cgo!=off  → 各平台原生 runner（CGO 无法跨 OS 交叉编译）
 #
+# ntfy 额外用 cgo-off-platforms 把 darwin/windows 切到 CGO_ENABLED=0
+# （纯客户端，不需要 sqlite），linux 保持 CGO + 完全静态。
+#
 # 版本号不在这里写死：取自 release 的 tag 名（GITHUB_REF_NAME），
 # 经 -ldflags -X 注入二进制。各仓库 main 包需有对应的 version 变量。
 
@@ -24,11 +27,31 @@ on:
       cgo:
         type: string
         default: 'off'
-        description: 'off | glibc'
+        description: 'off | glibc | static'
+      build-tags:
+        type: string
+        default: ''
+        description: 'CGO 平台（linux）编译时的 -tags。ntfy = sqlite_omit_load_extension osusergo netgo'
+      cgo-off-platforms:
+        type: string
+        default: ''
+        description: '逗号分隔的 goos，走 CGO_ENABLED=0 + build-tags-cgo-off。ntfy = darwin,windows'
+      build-tags-cgo-off:
+        type: string
+        default: ''
+        description: 'cgo-off-platforms 上的额外 -tags。ntfy = noserver（纯客户端，不含 server 包）'
+      static-ldflags:
+        type: string
+        default: '-linkmode=external -extldflags=-static'
+        description: 'cgo=static 时追加的链接选项，使 Linux 产物完全静态'
       version-var:
         type: string
         default: 'main.version'
         description: '被注入的符号；diarum = main.Version'
+      extra-version-vars:
+        type: string
+        default: ''
+        description: '额外的 -X 注入。ntfy 传 main.commit={{sha8}} main.date={{date}}，占位符在 shell 里展开'
       release-platforms:
         type: string
         default: 'linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64'
@@ -53,6 +76,22 @@ on:
         type: string
         default: ''
         description: '编译前在仓库根执行，如 qiansi 打 web-dist.zip'
+      docs-command:
+        type: string
+        default: ''
+        description: '在仓库根执行，编译之前。生成 npm 之外的前置产物（如 ntfy 的 mkdocs 文档 → server/docs）'
+      docs-cache-path:
+        type: string
+        default: ''
+        description: '非空则对该路径做 actions/cache（如 ~/.cache/pip）。纯加速用'
+      docs-cache-key-files:
+        type: string
+        default: 'requirements.txt'
+        description: '逗号分隔的仓库根 glob，参与 docs 缓存 key'
+      docs-python:
+        type: string
+        default: 'python3'
+        description: '注入给 docs-command 的 $PYTHON'
       extra-files:
         type: string
         default: ''
@@ -132,6 +171,40 @@ jobs:
 
       # 与 web-dir 解耦：非 npm 前端（如 chaxin 的 sh web/build.sh）没有 web-dir，
       # 但同样需要在编译前生成 go:embed 依赖物。
+      - name: Resolve docs cache key
+        id: docskey
+        if: inputs.docs-command != '' && inputs.docs-cache-path != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra pats <<< "${{ inputs.docs-cache-key-files }}"
+          h=""
+          for p in "${pats[@]}"; do
+            p="$(printf '%s' "$p" | tr -d '[:space:]')"
+            [ -n "$p" ] || continue
+            if [ -f "$p" ]; then
+              h="${h}_$(printf '%s' "$p" | tr -c '[:alnum:]._-' '_')-$(sha256sum "$p" | cut -c1-16)"
+            else
+              h="${h}_$(printf '%s' "$p" | tr -c '[:alnum:]._-' '_')-missing"
+            fi
+          done
+          [ -n "$h" ] || h="nohash"
+          echo "key=docs-${{ runner.os }}-$h" >> "$GITHUB_OUTPUT"
+
+      - name: Restore docs cache
+        if: inputs.docs-command != '' && inputs.docs-cache-path != ''
+        uses: actions/cache@v6
+        with:
+          path: ${{ inputs.docs-cache-path }}
+          key: ${{ steps.docskey.outputs.key }}
+
+      - name: Build docs assets
+        if: inputs.docs-command != ''
+        shell: bash
+        env:
+          PYTHON: ${{ inputs.docs-python }}
+        run: ${{ inputs.docs-command }}
+
       - name: Stage frontend assets
         if: inputs.frontend-stage-command != ''
         run: ${{ inputs.frontend-stage-command }}
@@ -244,39 +317,149 @@ jobs:
           fi
       # <<< web-install
 
+      - name: Resolve docs cache key
+        id: docskey
+        if: inputs.docs-command != '' && inputs.docs-cache-path != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra pats <<< "${{ inputs.docs-cache-key-files }}"
+          h=""
+          for p in "${pats[@]}"; do
+            p="$(printf '%s' "$p" | tr -d '[:space:]')"
+            [ -n "$p" ] || continue
+            if [ -f "$p" ]; then
+              h="${h}_$(printf '%s' "$p" | tr -c '[:alnum:]._-' '_')-$(sha256sum "$p" | cut -c1-16)"
+            else
+              h="${h}_$(printf '%s' "$p" | tr -c '[:alnum:]._-' '_')-missing"
+            fi
+          done
+          [ -n "$h" ] || h="nohash"
+          echo "key=docs-${{ runner.os }}-${{ matrix.goos }}-${{ matrix.goarch }}-$h" >> "$GITHUB_OUTPUT"
+
+      - name: Restore docs cache
+        if: inputs.docs-command != '' && inputs.docs-cache-path != ''
+        uses: actions/cache@v6
+        with:
+          path: ${{ inputs.docs-cache-path }}
+          key: ${{ steps.docskey.outputs.key }}
+
+      - name: Build docs assets
+        if: inputs.docs-command != ''
+        shell: bash
+        env:
+          PYTHON: ${{ inputs.docs-python }}
+        run: ${{ inputs.docs-command }}
+
       - name: Stage frontend assets
         if: inputs.frontend-stage-command != ''
         run: ${{ inputs.frontend-stage-command }}
 
-      - name: Build (native CGO)
+      # ntfy：darwin/windows 走 CGO_ENABLED=0 + noserver（纯客户端），
+      # linux 走 CGO + 完全静态。三条路径互斥，用同一个 cgo_off 标记统一切换。
+      #
+      # extra-version-vars 里带空格，YAML 层没法直接塞进 -ldflags，所以在 shell 里
+      # 展开成单行 "-X k=v"，由构建 step 追加到 ldflags 末尾。
+      # 只作用于 binaries-matrix（本仓群中只有 cgo != off 的仓库会传它）。
+      - name: Resolve extra version vars
+        id: xvars
+        if: inputs.extra-version-vars != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 占位符必须用 {{...}}：写成 $GITHUB_SHA 会被 bash 在"传值"时提前展开，
+          # 循环里再匹配字面量就永远匹配不上（曾导致 SHA 被整串注入、:0:8 变成后缀）。
+          raw='${{ inputs.extra-version-vars }}'
+          sha8="${GITHUB_SHA:0:8}"
+          bdate="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          out="${{ inputs.extra-version-vars }}"
+          out="${out//\{\{sha8\}\}/$sha8}"
+          out="${out//\{\{date\}\}/$bdate}"
+          flags=""
+          for kv in $out; do
+            k="${kv%%=*}"
+            v="${kv#*=}"
+            [ -n "$k" ] || continue
+            case "$v" in
+              *'{{'*) echo "::error::extra-version-vars 含未识别的占位符：$kv"; exit 1 ;;
+            esac
+            flags="$flags -X $k=$v"
+          done
+          echo "flags=${flags# }" >> "$GITHUB_OUTPUT"
+
+      - name: Build (CGO / static / cgo-off)
         shell: bash
         working-directory: ${{ inputs.go-dir }}
+        env:
+          GOOS_M: ${{ matrix.goos }}
+          GOARCH_M: ${{ matrix.goarch }}
+          XFLAGS: ${{ steps.xvars.outputs.flags }}
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME}"
-          name="${{ inputs.binary-name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
-          if [ "${{ matrix.goos }}" = "windows" ]; then name="${name}.exe"; fi
+          name="${{ inputs.binary-name }}-${GOOS_M}-${GOARCH_M}"
+          if [ "${GOOS_M}" = "windows" ]; then name="${name}.exe"; fi
           mkdir -p "$GITHUB_WORKSPACE/dist"
+          cgo_off=0
+          if [ -n "${{ inputs.cgo-off-platforms }}" ]; then
+            case ",${{ inputs.cgo-off-platforms }}," in
+              *",${GOOS_M},"*) cgo_off=1 ;;
+            esac
+          fi
 
-          if [ "${{ inputs.cgo }}" = "glibc" ] && [ "${{ matrix.goos }}" = "linux" ]; then
-            # 幕间的 Linux 产物仍在固定 glibc 的容器里编译，与镜像保持同一份约束
+          if [ "$cgo_off" = "1" ]; then
+            echo "── ${GOOS_M}/${GOARCH_M} @ ${VERSION}（CGO 关闭，tags: ${{ inputs.build-tags-cgo-off }}）"
+            CGO_ENABLED=0 GOOS="${GOOS_M}" GOARCH="${GOARCH_M}" \
+              go build -trimpath \
+                -tags="${{ inputs.build-tags-cgo-off }}" \
+                -ldflags "-s -w -X ${{ inputs.version-var }}=${VERSION} ${XFLAGS}" \
+                -o "$GITHUB_WORKSPACE/dist/${name}" ${{ inputs.main-package }}
+          elif [ "${{ inputs.cgo }}" = "glibc" ] && [ "${GOOS_M}" = "linux" ]; then
+            #幕间的 Linux 产物仍在固定 glibc 的容器里编译，与镜像保持同一份约束
+            echo "── ${GOOS_M}/${GOARCH_M} @ ${VERSION}（CGO，glibc 固定容器）"
             modcache=$(go env GOMODCACHE)
             mkdir -p "$modcache"
             docker run --rm --user "$(id -u):$(id -g)" \
               -v "$GITHUB_WORKSPACE:/src" -w "/src/${{ inputs.go-dir }}" \
               -v "$modcache:/go/pkg/mod" \
               -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOTOOLCHAIN=local -e CGO_ENABLED=1 \
+              -e GOOS="${GOOS_M}" -e GOARCH="${GOARCH_M}" \
               golang:1.27-bookworm \
               go build -trimpath \
-                -ldflags "${{ inputs.build-ldflags }} -X ${{ inputs.version-var }}=${VERSION}" \
+                -tags "${{ inputs.build-tags }}" \
+                -ldflags "${{ inputs.build-ldflags }} -X ${{ inputs.version-var }}=${VERSION} ${XFLAGS}" \
                 -o "/src/dist/${name}" ${{ inputs.main-package }}
+          elif [ "${{ inputs.cgo }}" = "static" ] && [ "${GOOS_M}" = "linux" ]; then
+            # 完全静态：这份产物同时也是 alpine 镜像的输入，动态链接会在 musl 上启动即崩
+            echo "── ${GOOS_M}/${GOARCH_M} @ ${VERSION}（CGO，完全静态）"
+            CGO_ENABLED=1 GOOS="${GOOS_M}" GOARCH="${GOARCH_M}" \
+              go build -trimpath \
+                -tags "${{ inputs.build-tags }}" \
+                -ldflags "${{ inputs.build-ldflags }} ${{ inputs.static-ldflags }} -X ${{ inputs.version-var }}=${VERSION} ${XFLAGS}" \
+                -o "$GITHUB_WORKSPACE/dist/${name}" ${{ inputs.main-package }}
           else
             # CGO_ENABLED 必须与命令同行：换行赋值在 PowerShell 下不生效
-            CGO_ENABLED=1 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            echo "── ${GOOS_M}/${GOARCH_M} @ ${VERSION}（原生 CGO）"
+            CGO_ENABLED=1 GOOS="${GOOS_M}" GOARCH="${GOARCH_M}" \
               go build -trimpath \
-                -ldflags "${{ inputs.build-ldflags }} -X ${{ inputs.version-var }}=${VERSION}" \
+                -tags "${{ inputs.build-tags }}" \
+                -ldflags "${{ inputs.build-ldflags }} -X ${{ inputs.version-var }}=${VERSION} ${XFLAGS}" \
                 -o "$GITHUB_WORKSPACE/dist/${name}" ${{ inputs.main-package }}
           fi
+
+          # 静态性守卫：少一个 -static，Linux 产物在 alpine 上启动即崩，
+          # 而编译与测试全绿 —— 只能在这里钉住。
+          - name: Verify fully static
+            if: ${{ inputs.cgo == 'static' }} && matrix.goos == 'linux'
+            run: |
+              set -euo pipefail
+              bin="dist/${{ inputs.binary-name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+              command -v readelf >/dev/null || sudo apt-get install -y -q binutils
+              if readelf -l "$bin" | grep -q 'INTERP'; then
+                echo "::error::$bin 含INTERP 段，不是完全静态链接"
+                exit 1
+              fi
+              echo "✓ $bin 无 INTERP 段"
 
       - uses: actions/upload-artifact@v7
         with:

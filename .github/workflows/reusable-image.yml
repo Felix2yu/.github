@@ -7,10 +7,11 @@ name: Reusable · Image
 #   二进制在 runner 上编，缓存命中率高，且能在推送前做 glibc 校验。
 #
 # CGO 形态（inputs.cgo）：
-#   off   —— 纯 Go，静态链接，可交叉编译（12 个仓库）
-#   glibc —— CGO + glibc 动态链接，必须在固定 glibc 的容器里编译（幕间 mujian）
+#   off    —— 纯 Go，静态链接，可交叉编译（12 个仓库）
+#   glibc  —— CGO + glibc 动态链接，必须在固定 glibc 的容器里编译（幕间 mujian）
+#   static —— CGO + 完全静态链接，扔进 alpine 也能跑（ntfy）
 #
-# 差异用两条互斥 step 表达，而不是两个 job：
+# 差异用三条互斥 step 表达，而不是多个 job：
 #   独立 job 会引入 needs 跳过语义（被 if 跳过的 job 会连带跳过下游），
 #   而条件 step 让 90% 的仓库「零感知」——它们的 job 里只有一条 step 命中。
 
@@ -34,7 +35,19 @@ on:
       cgo:
         type: string
         default: 'off'
-        description: 'off | glibc'
+        description: 'off | glibc | static'
+      build-tags:
+        type: string
+        default: ''
+        description: '传给 go build 的 -tags，空格分隔。ntfy = sqlite_omit_load_extension osusergo netgo'
+      static-ldflags:
+        type: string
+        default: '-linkmode=external -extldflags=-static'
+        description: 'cgo=static 时在 build-ldflags 之后追加的链接选项。CGO 完全静态链接才能在 alpine/musl 上跑'
+      static-verify-command:
+        type: string
+        default: ''
+        description: 'cgo=static 后的额外校验命令；非空则以它退出码为准。默认校验二进制无 INTERP 段（真静态）'
       dockerfile:
         type: string
         default: 'Dockerfile'
@@ -72,6 +85,22 @@ on:
       build-args:
         type: string
         default: ''
+      docs-command:
+        type: string
+        default: ''
+        description: '在仓库根执行，编译二进制之前。生成 npm 之外的前置产物（如 ntfy 的 mkdocs 文档 → server/docs）。命令须自行保证幂等'
+      docs-cache-path:
+        type: string
+        default: ''
+        description: '非空则对该路径做 actions/cache（如 ~/.cache/pip）。纯加速用，命令本身须保证无缓存也能跑通'
+      docs-cache-key-files:
+        type: string
+        default: 'requirements.txt'
+        description: '逗号分隔的仓库根 glob，参与 docs 缓存 key'
+      docs-python:
+        type: string
+        default: 'python3'
+        description: '注入给 docs-command 的 $PYTHON'
       push-images:
         type: boolean
         default: true
@@ -154,13 +183,49 @@ jobs:
           fi
       # <<< web-install
 
+      # hashFiles() 不接受逗号分隔的多值（会整体当成一个字面 pattern 而匹配不到），
+      # 所以这里先在 bash 里把 docs-cache-key-files 拆成多个 pattern 分别求值。
+      - name: Resolve docs cache key
+        id: docskey
+        if: inputs.docs-command != '' && inputs.docs-cache-path != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra pats <<< "${{ inputs.docs-cache-key-files }}"
+          h=""
+          for p in "${pats[@]}"; do
+            p="$(printf '%s' "$p" | tr -d '[:space:]')"
+            [ -n "$p" ] || continue
+            if [ -f "$p" ]; then
+              h="${h}_$(printf '%s' "$p" | tr -c '[:alnum:]._-' '_')-$(sha256sum "$p" | cut -c1-16)"
+            else
+              h="${h}_$(printf '%s' "$p" | tr -c '[:alnum:]._-' '_')-missing"
+            fi
+          done
+          [ -n "$h" ] || h="nohash"
+          echo "key=docs-${{ runner.os }}-${{ matrix.arch }}-$h" >> "$GITHUB_OUTPUT"
+
+      - name: Restore docs cache
+        if: inputs.docs-command != '' && inputs.docs-cache-path != ''
+        uses: actions/cache@v6
+        with:
+          path: ${{ inputs.docs-cache-path }}
+          key: ${{ steps.docskey.outputs.key }}
+
+      - name: Build docs assets
+        if: inputs.docs-command != ''
+        shell: bash
+        env:
+          PYTHON: ${{ inputs.docs-python }}
+        run: ${{ inputs.docs-command }}
+
       # 与 web-dir 解耦：非 npm 前端（如 chaxin 的 sh web/build.sh）没有 web-dir，
       # 但同样需要在编译前生成 go:embed 依赖物。
       - name: Stage frontend assets
         if: inputs.frontend-stage-command != ''
         run: ${{ inputs.frontend-stage-command }}
 
-      # ---------------- CGO 形态：两条互斥 step ----------------
+      # ---------------- CGO 形态：三条互斥 step ----------------
 
       - name: Build binary (static)
         if: inputs.cgo == 'off'
@@ -171,6 +236,46 @@ jobs:
             go build -trimpath -ldflags="${{ inputs.build-ldflags }}" \
               -o "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}" \
               ${{ inputs.main-package }}
+
+      # ntfy 专用。CGO 需要完全静态链接（-extldflags=-static）才能扔进 alpine：
+      # 动态链接的产物在 musl 上启动即 "not found"，而 CI 全程是绿的。
+      #
+      # 刻意**不**用 golang:*-alpine 编译：alpine 镜像不含 gcc，要额外 apk add build-base，
+      # 既多一个网络失败点，又与上游 Dockerfile-build（golang:1.25-bookworm 编、alpine 跑）
+      # 不一致。全静态后二进制不依赖任何 libc，编译期用 glibc 还是 musl 都一样。
+      - name: Build binary (CGO, fully static)
+        if: inputs.cgo == 'static'
+        working-directory: ${{ inputs.go-dir }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}"
+          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} \
+            go build -trimpath \
+              -tags="${{ inputs.build-tags }}" \
+              -ldflags="${{ inputs.build-ldflags }} ${{ inputs.static-ldflags }}" \
+              -o "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}" \
+              ${{ inputs.main-package }}
+
+      # 真静态 = 没有 INTERP 段。少一个 -static 就会让产物在 alpine 上启动失败，
+      # 而编译与测试全绿 —— 只能在这里钉住。
+      - name: Verify fully static
+        if: inputs.cgo == 'static' && inputs.static-verify-command == ''
+        run: |
+          set -euo pipefail
+          bin="${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}"
+          command -v readelf >/dev/null || sudo apt-get install -y -q binutils
+          if readelf -l "$bin" | grep -q 'INTERP'; then
+            echo "::error::$bin 含 INTERP 段，不是完全静态链接；该产物无法在 alpine/musl 上运行。"
+            echo "检查 static-ldflags 是否包含 -extldflags=-static"
+            readelf -l "$bin" | grep -A1 'INTERP' || true
+            exit 1
+          fi
+          echo "✓ $bin 无 INTERP 段，完全静态"
+          file "$bin" || true
+
+      - name: Verify static (custom)
+        if: inputs.cgo == 'static' && inputs.static-verify-command != ''
+        run: ${{ inputs.static-verify-command }}
 
       # 幕间专用。CGO 把二进制绑死在编译机的 glibc 上；若直接在 runner 上编，
       # glibc 下限就成了 GitHub runner 轮换的属性，某次轮换后会突然炸。
