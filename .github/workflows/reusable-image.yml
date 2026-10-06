@@ -78,10 +78,10 @@ on:
         description: '在仓库根执行：把前端产物摆到 go:embed 位置，和/或 dist/ 供 Dockerfile COPY'
       runner-amd64:
         type: string
-        default: 'ubuntu-24.04'
+        default: 'ubuntu-26.04'
       runner-arm64:
         type: string
-        default: 'ubuntu-24.04-arm'
+        default: 'ubuntu-26.04-arm'
       build-args:
         type: string
         default: ''
@@ -355,7 +355,7 @@ jobs:
   manifest:
     if: inputs.push-images && github.event_name != 'pull_request'
     needs: docker
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write

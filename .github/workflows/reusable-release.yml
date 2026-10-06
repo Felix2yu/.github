@@ -98,7 +98,7 @@ on:
         description: '额外挂到 release 的文件，换行分隔'
       runs-on:
         type: string
-        default: 'ubuntu-24.04'
+        default: 'ubuntu-26.04'
 
 jobs:
   binaries-cross:
@@ -246,8 +246,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { goos: linux,   goarch: amd64, runs-on: ubuntu-24.04 }
-          - { goos: linux,   goarch: arm64, runs-on: ubuntu-24.04-arm }
+          - { goos: linux,   goarch: amd64, runs-on: ubuntu-26.04 }
+          - { goos: linux,   goarch: arm64, runs-on: ubuntu-26.04-arm }
           - { goos: darwin,  goarch: amd64, runs-on: macos-latest }
           - { goos: darwin,  goarch: arm64, runs-on: macos-latest }
           - { goos: windows, goarch: amd64, runs-on: windows-latest }
@@ -471,7 +471,7 @@ jobs:
     # 两个构建 job 互斥，被跳过的那个会把 needs 连带跳过，故用 !cancelled() 兜底
     needs: [binaries-cross, binaries-matrix]
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:

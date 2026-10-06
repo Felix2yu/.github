@@ -1,0 +1,9 @@
+# actionlint 内置的 runner label 表更新滞后于 GitHub 官方发布：
+# ubuntu-26.04 / ubuntu-26.04-arm 已于 2026-09-17 GA，但 actionlint 1.7.12
+# （2026-03 发布）尚未收录，会误报 `label "ubuntu-26.04" is unknown`。
+# 上游已合入支持（rhysd/actionlint#2384），等它发版后可删掉本文件。
+# 这里借 self-hosted-runner.labels 把它们登记为已知 label 放行。
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+    - ubuntu-26.04-arm

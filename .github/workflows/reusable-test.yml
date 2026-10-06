@@ -96,7 +96,7 @@ on:
         description: 'qiansi = true（避免把原生 coverage.out 一起上报）'
       runs-on:
         type: string
-        default: 'ubuntu-24.04'
+        default: 'ubuntu-26.04'
     secrets:
       CODECOV_TOKEN:
         required: false
