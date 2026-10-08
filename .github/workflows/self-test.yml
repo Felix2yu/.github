@@ -24,8 +24,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # 不能写成 bash <(curl …)：进程替换里 curl 的退出码传不出来，网络被 reset 时
+      # 喂给 bash 的是个空文件、这一步照样绿，红却红在下一步的 ./actionlint: 127，
+      # 看起来像是 lint 没过。落盘 + -f 才能把下载失败如实报在这一步。
       - name: Install actionlint
-        run: bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) 1.7.12
+        run: |
+          set -euo pipefail
+          curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash \
+            -o /tmp/download-actionlint.bash
+          bash /tmp/download-actionlint.bash 1.7.12
 
       - name: Lint workflows
         run: ./actionlint -color -shellcheck= -pyflakes=
