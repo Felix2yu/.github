@@ -7,7 +7,9 @@ name: Reusable · Image
 #   二进制在 runner 上编，缓存命中率高，且能在推送前做 glibc 校验。
 #
 # CGO 形态（inputs.cgo）：
-#   off    —— 纯 Go，静态链接，可交叉编译（12 个仓库）
+#   off    —— 纯 Go，CGO_ENABLED=0，可交叉编译（12 个仓库）。
+#             但 CGO off 不保证静态：依赖里若有 //go:linkname 到 libc 符号的可选绑定
+#             （purego 那类 dlopen），产物照样带 INTERP，所以这条形态也过 INTERP 守卫
 #   glibc  —— CGO + glibc 动态链接，必须在固定 glibc 的容器里编译（幕间 mujian）
 #   static —— CGO + 完全静态链接，扔进 alpine 也能跑（ntfy）
 #
@@ -47,7 +49,7 @@ on:
       static-verify-command:
         type: string
         default: ''
-        description: 'cgo=static 后的额外校验命令；非空则以它退出码为准。默认校验二进制无 INTERP 段（真静态）'
+        description: 'cgo=static 或 off 编译后的额外校验命令；非空则以它退出码为准。默认为校验二进制无 INTERP 段（真静态）'
       dockerfile:
         type: string
         default: 'Dockerfile'
@@ -233,7 +235,9 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}"
           CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} \
-            go build -trimpath -ldflags="${{ inputs.build-ldflags }}" \
+            go build -trimpath \
+              -tags="${{ inputs.build-tags }}" \
+              -ldflags="${{ inputs.build-ldflags }}" \
               -o "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}" \
               ${{ inputs.main-package }}
 
@@ -257,16 +261,21 @@ jobs:
               ${{ inputs.main-package }}
 
       # 真静态 = 没有 INTERP 段。少一个 -static 就会让产物在 alpine 上启动失败，
-      # 而编译与测试全绿 —— 只能在这里钉住。
+      # 而编译与测试全绿 —— 只能在这里钉住。cgo=off 同样要过：CGO_ENABLED=0 挡不住
+      # 依赖里 //go:linkname 的 libc 符号（tuqie 的 avif 就是这么把 glibc INTERP 带进 musl 镜像的）。
       - name: Verify fully static
-        if: inputs.cgo == 'static' && inputs.static-verify-command == ''
+        if: (inputs.cgo == 'static' || inputs.cgo == 'off') && inputs.static-verify-command == ''
         run: |
           set -euo pipefail
           bin="${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}"
           command -v readelf >/dev/null || sudo apt-get install -y -q binutils
           if readelf -l "$bin" | grep -q 'INTERP'; then
             echo "::error::$bin 含 INTERP 段，不是完全静态链接；该产物无法在 alpine/musl 上运行。"
-            echo "检查 static-ldflags 是否包含 -extldflags=-static"
+            if [ "${{ inputs.cgo }}" = "static" ]; then
+              echo "检查 static-ldflags 是否包含 -extldflags=-static"
+            else
+              echo "CGO_ENABLED=0 也会被依赖里 //go:linkname 的 libc 符号拽住；用 build-tags 关掉那条可选绑定路径"
+            fi
             readelf -l "$bin" | grep -A1 'INTERP' || true
             exit 1
           fi
@@ -274,7 +283,7 @@ jobs:
           file "$bin" || true
 
       - name: Verify static (custom)
-        if: inputs.cgo == 'static' && inputs.static-verify-command != ''
+        if: (inputs.cgo == 'static' || inputs.cgo == 'off') && inputs.static-verify-command != ''
         run: ${{ inputs.static-verify-command }}
 
       # 幕间专用。CGO 把二进制绑死在编译机的 glibc 上；若直接在 runner 上编，
