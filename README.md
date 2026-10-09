@@ -14,9 +14,22 @@ Felix2yu/.github/
 │   ├── reusable-image.yml     预编译 + 双架构镜像 + manifest 合并
 │   ├── reusable-release.yml   5 平台二进制 + 版本注入 + 校验和
 │   └── self-test.yml          本仓库门禁（actionlint + 重复块一致性检查）
+├── docs/                      跨仓库契约：写进任一项目都只有那一个项目看得到
+│   ├── PWA.md                 PWA 实现规范（图标 / head / manifest / SW）
+│   ├── docker.md              容器镜像（装配式 / 非 root / 基镜像 pin / 探活）
+│   ├── repo-baseline.md       仓库基线（README / LICENSE / CI / 三件套 / 忽略规则）
+│   ├── dependabot.md          依赖更新配置与合并策略
+│   ├── frontend.md            前端工具链契约（Node / pnpm / 产物位置）
+│   └── release.md             发布规范（版本注入 / tag / CHANGELOG）
+├── preset/
+│   └── dependabot.yml         组织统一的依赖更新配置模板（整份覆盖，别手改副本）
+├── pwa-preset/                PWA 预设：图标生成器、head 片段、manifest / SW 模板
 └── scripts/
     ├── check-pm-blocks.sh         前端解析/安装重复块逐字节一致性
-    └── check-reusable-inputs.py   调用方 input 契约校验（本地跑）
+    ├── check-reusable-inputs.py   调用方 input 契约校验（本地跑）
+    ├── check-pwa.py               PWA 契约自检（本地跑）
+    ├── check-docker.py            容器镜像自检（本地跑）
+    └── check-repo-baseline.py     仓库基线自检（本地跑）
 ```
 
 > 前端解析与安装两块代码在三个 reusable workflow 里有 4 份物理副本（release 有
@@ -339,3 +352,81 @@ Node 同样拉平到一个版本：8 个前端仓库的仓库根 `.nvmrc` 现在
 
 **版本号不需要手写**：Go 版本读 `go.mod`、Node 版本读 `.nvmrc`、发布版本来自 git tag、
 镜像 tag 由 metadata-action 推导。
+
+---
+
+## 九、PWA 接入自检
+
+前端仓库接入 PWA 时按 [`docs/PWA.md`](docs/PWA.md) 走。契约是**跨仓库**的（图标命名、
+manifest 字段、SW 行为），写进任何一个项目里都只有那一个项目看得到，所以放在共享仓库。
+
+**接入只需三步**
+
+1. 生成图标：`python3 pwa-preset/gen-icons.py --src <源图> --out <静态目录>`
+   （会自动做满幅填底、去背、安全圆校验）
+2. 按 [`pwa-preset/head.html`](pwa-preset/head.html) 补 `<head>`，
+   按 [`pwa-preset/manifest.template.json`](pwa-preset/manifest.template.json) 补 manifest
+3. 自检：`python3 scripts/check-pwa.py <仓库名>`
+
+**自检清单**（脚本覆盖前 7 条，后 4 条人工）
+
+- [x] 图标七件套齐全，`maskable` 为独立位图、满幅、主体在 80% 安全圆内
+- [x] `<head>` 含静态 light/dark `theme-color` + `manifest` link + iOS meta + 四档 icon 声明
+- [x] manifest 含 `id` / `scope` / `categories`，`any` 与 `maskable` 分离
+- [x] SW 缓存名版本化、`activate` 清旧、离线条目有上限、有离线兜底
+- [ ] manifest 以 `application/manifest+json` 响应（Go 侧要显式设，见规范第三节）
+- [ ] 敏感路径（`/api/**`、认证）不被导航回落吞掉
+- [ ] 主题色在浅/深两种外观下都正确（A 案两条 / B 案单条 + JS 覆盖，别混用）
+- [ ] 真实浏览器验证：DevTools → Application → Manifest 无警告 / Service Workers 已激活
+
+> 脚本的 Pillow 是**可选**依赖：没装也能跑完，只是跳过位图深度校验。
+> 想校验 maskable 是否满幅透明、主体是否居中，再 `pip install pillow`。
+
+**现状**：12 个 Web 应用全绿（`python3 scripts/check-pwa.py`）。
+RSSRob / WebMonitor / QBHive / whoami / healthchecks 明确不做 PWA，不在范围内。
+
+---
+
+## 十、其它契约：容器 / 仓库基线 / 依赖 / 前端 / 发布
+
+PWA 之外还有五类东西同样是「跨仓库契约」——放进任何一个项目里，只有那一个项目
+看得到，而且会以「静默缺陷」的形式腐烂：**不做也不报错**。
+
+| 主题 | 契约文档 | 自检命令 | 不做的后果 |
+|---|---|---|---|
+| 容器镜像 | [`docs/docker.md`](docs/docker.md) | `python3 scripts/check-docker.py` | 以 root 跑、`:latest` 漂移、`.dockerignore` 埋雷、`HEALTHCHECK` 探在鉴权端点上 |
+| 仓库基线 | [`docs/repo-baseline.md`](docs/repo-baseline.md) | `python3 scripts/check-repo-baseline.py` | 缺 LICENSE 别人不能用、缺 dependabot 依赖停更、缺 CI 无人验证分支 |
+| 依赖更新 | [`docs/dependabot.md`](docs/dependabot.md) | 同上「依赖更新」列 | 每周十几个 PR，最后没人看；CVE 半年无人知 |
+| 前端工具链 | [`docs/frontend.md`](docs/frontend.md) | 同上「前端三件套」列 | CI 猜 Node 版本；`overrides` 在 pnpm 下空转 |
+| 发布 | [`docs/release.md`](docs/release.md) | —（人工核对） | 二进制里写着 `dev`；容器里 `GLIBC_2.43 not found` |
+
+### 新仓库接入一次跑完
+
+```bash
+bash scripts/check-pm-blocks.sh              # 改过 workflow 才需要
+python3 scripts/check-reusable-inputs.py     # 调用方 input 契约（需 pip install pyyaml）
+python3 scripts/check-pwa.py                 # PWA 契约
+python3 scripts/check-docker.py              # 容器契约
+python3 scripts/check-repo-baseline.py       # 仓库基线
+```
+
+五个脚本都遵循两条约定：
+
+1. **零/可选依赖**。只有 `check-reusable-inputs.py` 需要 `pyyaml`（它要解析 YAML），
+   `check-pwa.py` 的 Pillow 是可选的（缺了只跳过位图深度校验）。
+   它们都能在系统自带的 Python 上直接跑，不要求建 venv。
+2. **豁免要显式登记**。不是所有容器都该降权、不是所有仓库都要 CI——要豁免就在脚本
+   顶部的 `REPOS` 里写明理由，脚本会把它打印成「已登记的例外」而不是沉默。
+   **不要为了迎合脚本改掉一个更好的实现**（这事儿发生过：有人为满足「换缓存名」检查，
+   差点把按构建名单精确增删缓存的等价实现改坏）。
+
+### 现状快照（本次会话）
+
+| 报告 | 结论 |
+|---|---|
+| PWA 契约 | 12 个 Web 应用全绿 |
+| 容器镜像 | 16 个有 Dockerfile 的仓库，6 个全绿，10 个待修（多为以 root 运行 / 无探活） |
+| 仓库基线 | 17 个自研仓库中，缺口集中在 LICENSE（9 个）与 dependabot 未分组（14 个） |
+
+> 容器与基线的待修项是**有意留白**：降权、加 `HEALTHCHECK` 会动到正在跑的部署，
+> 与「改一批依赖」不该混在同一次提交里。清单在那儿，下一轮单项处理。

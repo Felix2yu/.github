@@ -1,0 +1,26 @@
+<!--
+  PWA 标准 head 块（契约见 ../PWA规范.md）
+  占位符：
+    {{MANIFEST}}   清单路径，默认 /manifest.webmanifest
+    {{LIGHT_BG}}   浅色主题色（与 manifest.theme_color 一致）
+    {{DARK_BG}}    深色主题色
+    {{APP_NAME}}   应用全称（iOS 主屏名）
+  约定：icon 声明顺序 = ico → svg → 192 png；apple-touch 固定 180 png。
+-->
+<meta name="theme-color" content="{{LIGHT_BG}}" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="{{DARK_BG}}" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="{{LIGHT_BG}}" />
+<link rel="manifest" href="{{MANIFEST}}" />
+
+<!-- iOS / Android 安装元信息 -->
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="{{APP_NAME}}" />
+<meta name="format-detection" content="telephone=no" />
+
+<!-- 图标家族 -->
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />

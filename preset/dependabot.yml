@@ -1,0 +1,91 @@
+# Felix2yu 组织统一依赖更新配置 —— 模板来自 Felix2yu/.github/preset/dependabot.yml
+#
+# 用法：整份复制到目标仓库的 .github/dependabot.yml，然后改三处：
+#   1. 后端不是 Go 的：把 gomod 段换成 pip（Python）或删掉（纯前端）
+#   2. 前端目录不是 /web 的：改 npm 段的 directory（本仓群常见的有 /frontend /site）
+#   3. 没有 Dockerfile 的：删掉 docker 段
+#
+# 升级时整份覆盖，不要在副本里手改 —— 否则下次同步会打架。
+# 设计理由与合并策略见 Felix2yu/.github/docs/dependabot.md
+
+version: 2
+updates:
+  # ── Go 后端 ─────────────────────────────────────────────────────────
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "00:00"
+      timezone: "Asia/Shanghai"
+    # 默认只有 5，达到上限后会「静默停止」提新 PR 且不报错；10 容纳分组后的峰值
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      prefix-development: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+    # patch / minor 合成一个 PR（否则每周十几个 PR，没人看得完）；
+    # major 单独成组：它要读 changelog，不能混在一堆 patch 里顺手合掉
+    groups:
+      go-minor-patch:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]
+      go-major:
+        patterns: ["*"]
+        update-types: ["major"]
+
+  # ── 前端 npm（directory 改成实际前端目录：/web /frontend /site）──────
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "00:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      prefix-development: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]
+      npm-major:
+        patterns: ["*"]
+        update-types: ["major"]
+
+  # ── Docker 基础镜像 ─────────────────────────────────────────────────
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "00:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # ── GitHub Actions ──────────────────────────────────────────────────
+  # 注：Felix2yu/.github/.github/workflows/*.yml@v1 这种远程 reusable workflow 引用
+  # Dependabot 认不出来，得手动 version bump；这里管的是 ci.yml 里散落的
+  # actions/checkout、actions/cache 等第三方 action 的版本。
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "00:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+    labels:
+      - "dependencies"
+      - "ci"
