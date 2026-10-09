@@ -441,7 +441,7 @@ jobs:
               -v "$modcache:/go/pkg/mod" \
               -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOTOOLCHAIN=local -e CGO_ENABLED=1 \
               -e GOOS="${GOOS_M}" -e GOARCH="${GOARCH_M}" \
-              golang:1.26-bookworm \
+              golang:1.26-trixie \
               go build -trimpath \
                 -tags "${{ inputs.build-tags }}" \
                 -ldflags "${{ inputs.build-ldflags }} ${{ inputs.static-ldflags }} -X ${{ inputs.version-var }}=${VERSION} ${XFLAGS}" \

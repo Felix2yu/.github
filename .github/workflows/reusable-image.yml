@@ -248,7 +248,8 @@ jobs:
       # runner 的 apt 源是 amd64v3（x86-64-v3 / AVX2）变体，系统 glibc 以 AVX2 为
       # 基线编译；静态链接会把带 AVX2 的 crt1.o / libc.a 直接烧进产物，在没有 AVX
       # 的老 CPU 上启动瞬间 SIGILL（exit 132），且崩溃早于任何日志输出。
-      # golang:*-bookworm 是 Debian 基线 x86-64 工具链，不引入 AVX。
+      # golang:*-trixie 是 Debian 基线 x86-64 工具链（gcc -march=x86-64），不引入 AVX；
+      # AVX 仅存在于 IFUNC 多版本 memcpy/strlen 等函数，运行时 CPUID 探测后才会进入。
       # GOTOOLCHAIN=local：容器 Go 版本须 >= go.mod 的 go 指令，升级 go.mod 时同步改这里。
       - name: Build binary (CGO, fully static)
         if: inputs.cgo == 'static'
@@ -261,7 +262,7 @@ jobs:
             -v "$modcache:/go/pkg/mod" \
             -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOTOOLCHAIN=local -e CGO_ENABLED=1 \
             -e GOOS=linux -e GOARCH=${{ matrix.arch }} \
-            golang:1.26-bookworm \
+            golang:1.26-trixie \
             go build -trimpath \
               -tags="${{ inputs.build-tags }}" \
               -ldflags="${{ inputs.build-ldflags }} ${{ inputs.static-ldflags }}" \
