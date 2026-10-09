@@ -430,13 +430,22 @@ jobs:
                 -ldflags "${{ inputs.build-ldflags }} -X ${{ inputs.version-var }}=${VERSION} ${XFLAGS}" \
                 -o "/src/dist/${name}" ${{ inputs.main-package }}
           elif [ "${{ inputs.cgo }}" = "static" ] && [ "${GOOS_M}" = "linux" ]; then
-            # 完全静态：这份产物同时也是 alpine 镜像的输入，动态链接会在 musl 上启动即崩
-            echo "── ${GOOS_M}/${GOARCH_M} @ ${VERSION}（CGO，完全静态）"
-            CGO_ENABLED=1 GOOS="${GOOS_M}" GOARCH="${GOARCH_M}" \
+            # 完全静态：这份产物同时也是 alpine 镜像的输入，动态链接会在 musl 上启动即崩。
+            # 与镜像构建同理，必须在固定基线容器里编：ubuntu-26.04 runner 的 glibc 是
+            # amd64v3（AVX2）变体，静态链接会把 AVX 指令烧进产物，在老 CPU 上启动即 SIGILL
+            echo "── ${GOOS_M}/${GOARCH_M} @ ${VERSION}（CGO，完全静态，基线容器）"
+            modcache=$(go env GOMODCACHE)
+            mkdir -p "$modcache"
+            docker run --rm --user "$(id -u):$(id -g)" \
+              -v "$GITHUB_WORKSPACE:/src" -w "/src/${{ inputs.go-dir }}" \
+              -v "$modcache:/go/pkg/mod" \
+              -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOTOOLCHAIN=local -e CGO_ENABLED=1 \
+              -e GOOS="${GOOS_M}" -e GOARCH="${GOARCH_M}" \
+              golang:1.26-bookworm \
               go build -trimpath \
                 -tags "${{ inputs.build-tags }}" \
                 -ldflags "${{ inputs.build-ldflags }} ${{ inputs.static-ldflags }} -X ${{ inputs.version-var }}=${VERSION} ${XFLAGS}" \
-                -o "$GITHUB_WORKSPACE/dist/${name}" ${{ inputs.main-package }}
+                -o "/src/dist/${name}" ${{ inputs.main-package }}
           else
             # CGO_ENABLED 必须与命令同行：换行赋值在 PowerShell 下不生效
             echo "── ${GOOS_M}/${GOARCH_M} @ ${VERSION}（原生 CGO）"
@@ -447,19 +456,19 @@ jobs:
                 -o "$GITHUB_WORKSPACE/dist/${name}" ${{ inputs.main-package }}
           fi
 
-          # 静态性守卫：少一个 -static，Linux 产物在 alpine 上启动即崩，
-          # 而编译与测试全绿 —— 只能在这里钉住。
-          - name: Verify fully static
-            if: ${{ inputs.cgo == 'static' }} && matrix.goos == 'linux'
-            run: |
-              set -euo pipefail
-              bin="dist/${{ inputs.binary-name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
-              command -v readelf >/dev/null || sudo apt-get install -y -q binutils
-              if readelf -l "$bin" | grep -q 'INTERP'; then
-                echo "::error::$bin 含INTERP 段，不是完全静态链接"
-                exit 1
-              fi
-              echo "✓ $bin 无 INTERP 段"
+      # 静态性守卫：少一个 -static，Linux 产物在 alpine 上启动即崩，
+      # 而编译与测试全绿 —— 只能在这里钉住。
+      - name: Verify fully static
+        if: inputs.cgo == 'static' && matrix.goos == 'linux'
+        run: |
+          set -euo pipefail
+          bin="dist/${{ inputs.binary-name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          command -v readelf >/dev/null || sudo apt-get install -y -q binutils
+          if readelf -l "$bin" | grep -q 'INTERP'; then
+            echo "::error::$bin 含INTERP 段，不是完全静态链接"
+            exit 1
+          fi
+          echo "✓ $bin 无 INTERP 段"
 
       - uses: actions/upload-artifact@v7
         with:

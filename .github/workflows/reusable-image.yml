@@ -244,20 +244,28 @@ jobs:
       # ntfy 专用。CGO 需要完全静态链接（-extldflags=-static）才能扔进 alpine：
       # 动态链接的产物在 musl 上启动即 "not found"，而 CI 全程是绿的。
       #
-      # 刻意**不**用 golang:*-alpine 编译：alpine 镜像不含 gcc，要额外 apk add build-base，
-      # 既多一个网络失败点，又与上游 Dockerfile-build（golang:1.25-bookworm 编、alpine 跑）
-      # 不一致。全静态后二进制不依赖任何 libc，编译期用 glibc 还是 musl 都一样。
+      # 必须在固定基线的容器里编，不能在裸 runner 上编：GitHub 的 ubuntu-26.04
+      # runner 的 apt 源是 amd64v3（x86-64-v3 / AVX2）变体，系统 glibc 以 AVX2 为
+      # 基线编译；静态链接会把带 AVX2 的 crt1.o / libc.a 直接烧进产物，在没有 AVX
+      # 的老 CPU 上启动瞬间 SIGILL（exit 132），且崩溃早于任何日志输出。
+      # golang:*-bookworm 是 Debian 基线 x86-64 工具链，不引入 AVX。
+      # GOTOOLCHAIN=local：容器 Go 版本须 >= go.mod 的 go 指令，升级 go.mod 时同步改这里。
       - name: Build binary (CGO, fully static)
         if: inputs.cgo == 'static'
-        working-directory: ${{ inputs.go-dir }}
         run: |
           set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}"
-          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} \
+          modcache=$(go env GOMODCACHE)
+          mkdir -p "$modcache" "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE:/src" -w "/src/${{ inputs.go-dir }}" \
+            -v "$modcache:/go/pkg/mod" \
+            -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOTOOLCHAIN=local -e CGO_ENABLED=1 \
+            -e GOOS=linux -e GOARCH=${{ matrix.arch }} \
+            golang:1.26-bookworm \
             go build -trimpath \
               -tags="${{ inputs.build-tags }}" \
               -ldflags="${{ inputs.build-ldflags }} ${{ inputs.static-ldflags }}" \
-              -o "$GITHUB_WORKSPACE/${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}" \
+              -o "/src/${{ inputs.prebuilt-dest }}/${{ inputs.binary-name }}" \
               ${{ inputs.main-package }}
 
       # 真静态 = 没有 INTERP 段。少一个 -static 就会让产物在 alpine 上启动失败，
