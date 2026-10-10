@@ -20,7 +20,8 @@ Felix2yu/.github/
 │   ├── repo-baseline.md       仓库基线（README / LICENSE / CI / 三件套 / 忽略规则）
 │   ├── dependabot.md          依赖更新配置与合并策略
 │   ├── frontend.md            前端工具链契约（Node / pnpm / 产物位置）
-│   └── release.md             发布规范（版本注入 / tag / CHANGELOG）
+│   ├── release.md             发布规范（版本注入 / tag / CHANGELOG）
+│   └── cpu-baseline.md        CPU 指令集基线（CGO 编译环境 / AVX 门控 / 基线实测值）
 ├── preset/
 │   └── dependabot.yml         组织统一的依赖更新配置模板（整份覆盖，别手改副本）
 ├── pwa-preset/                PWA 预设：图标生成器、head 片段、manifest / SW 模板
@@ -29,7 +30,8 @@ Felix2yu/.github/
     ├── check-reusable-inputs.py   调用方 input 契约校验（本地跑）
     ├── check-pwa.py               PWA 契约自检（本地跑）
     ├── check-docker.py            容器镜像自检（本地跑）
-    └── check-repo-baseline.py     仓库基线自检（本地跑）
+    ├── check-repo-baseline.py     仓库基线自检（本地跑）
+    └── check-cpu-baseline.py      CPU 指令集自检（本地跑；产物扫描需 objdump）
 ```
 
 > 前端解析与安装两块代码在三个 reusable workflow 里有 4 份物理副本（release 有
@@ -387,9 +389,9 @@ RSSRob / WebMonitor / QBHive / whoami / healthchecks 明确不做 PWA，不在�
 
 ---
 
-## 十、其它契约：容器 / 仓库基线 / 依赖 / 前端 / 发布
+## 十、其它契约：容器 / 仓库基线 / 依赖 / 前端 / 发布 / CPU 指令集
 
-PWA 之外还有五类东西同样是「跨仓库契约」——放进任何一个项目里，只有那一个项目
+PWA 之外还有六类东西同样是「跨仓库契约」——放进任何一个项目里，只有那一个项目
 看得到，而且会以「静默缺陷」的形式腐烂：**不做也不报错**。
 
 | 主题 | 契约文档 | 自检命令 | 不做的后果 |
@@ -399,6 +401,7 @@ PWA 之外还有五类东西同样是「跨仓库契约」——放进任何一�
 | 依赖更新 | [`docs/dependabot.md`](docs/dependabot.md) | 同上「依赖更新」列 | 每周十几个 PR，最后没人看；CVE 半年无人知 |
 | 前端工具链 | [`docs/frontend.md`](docs/frontend.md) | 同上「前端三件套」列 | CI 猜 Node 版本；`overrides` 在 pnpm 下空转 |
 | 发布 | [`docs/release.md`](docs/release.md) | —（人工核对） | 二进制里写着 `dev`；容器里 `GLIBC_2.43 not found` |
+| CPU 指令集 | [`docs/cpu-baseline.md`](docs/cpu-baseline.md) | `python3 scripts/check-cpu-baseline.py` | 产物在老 CPU 上启动即 SIGILL（构建与测试全程绿灯） |
 
 ### 新仓库接入一次跑完
 
@@ -408,13 +411,15 @@ python3 scripts/check-reusable-inputs.py     # 调用方 input 契约（需 pip 
 python3 scripts/check-pwa.py                 # PWA 契约
 python3 scripts/check-docker.py              # 容器契约
 python3 scripts/check-repo-baseline.py       # 仓库基线
+python3 scripts/check-cpu-baseline.py        # CPU 指令集基线
 ```
 
-五个脚本都遵循两条约定：
+六个脚本都遵循两条约定：
 
 1. **零/可选依赖**。只有 `check-reusable-inputs.py` 需要 `pyyaml`（它要解析 YAML），
-   `check-pwa.py` 的 Pillow 是可选的（缺了只跳过位图深度校验）。
-   它们都能在系统自带的 Python 上直接跑，不要求建 venv。
+   `check-pwa.py` 的 Pillow 是可选的（缺了只跳过位图深度校验），
+   `check-cpu-baseline.py` 的 `objdump` 是可选的（缺了只跳过产物扫描）。
+   它们都能在系统自带的Python 上直接跑，不要求建 venv。
 2. **豁免要显式登记**。不是所有容器都该降权、不是所有仓库都要 CI——要豁免就在脚本
    顶部的 `REPOS` 里写明理由，脚本会把它打印成「已登记的例外」而不是沉默。
    **不要为了迎合脚本改掉一个更好的实现**（这事儿发生过：有人为满足「换缓存名」检查，
@@ -426,7 +431,5 @@ python3 scripts/check-repo-baseline.py       # 仓库基线
 |---|---|
 | PWA 契约 | 12 个 Web 应用全绿 |
 | 容器镜像 | 16 个有 Dockerfile 的仓库，6 个全绿，10 个待修（多为以 root 运行 / 无探活） |
-| 仓库基线 | 17 个自研仓库中，缺口集中在 LICENSE（9 个）与 dependabot 未分组（14 个） |
-
-> 容器与基线的待修项是**有意留白**：降权、加 `HEALTHCHECK` 会动到正在跑的部署，
-> 与「改一批依赖」不该混在同一次提交里。清单在那儿，下一轮单项处理。
+| 仓库基线 | 17 个自研仓库全绿 |
+| CPU 指令集 | 10 个 `CGO_ENABLED=0` 仓库全绿（ymm 基线 3523~6965，全部 CPUID 门控）；2 个 CGO 仓走固定基线容器 |
