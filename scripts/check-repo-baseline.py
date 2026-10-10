@@ -45,7 +45,13 @@ REPOS: dict[str, dict] = {
     "docker-db-auto-backup": dict(lang="go"),
     "ntfy": dict(lang="go", web="web"),
     "WebMonitor": dict(lang="python", web="frontend"),
-    "RSSRob": dict(lang="python"),
+    # 纯 Python：reusable-test.yml 的契约是「go-dir 留空则只跑 web-dir」，
+    # 本仓既无 Go 也无前端，硬接只会得到一个什么都不做的绿灯。
+    # 已自建 ci.yml（setup-python + pytest），不再强求 reusable。
+    "RSSRob": dict(
+        lang="python",
+        ci_exempt="纯 Python 仓库，reusable-test 的 go/web 两个入口都不适用，已自建 ci.yml 跑 pytest",
+    ),
     # fork / 第三方：README 与 LICENSE 沿用上游，不参与本仓群契约
     "healthchecks": dict(lang="python", fork=True),
     "whoami": dict(lang="go", fork=True),
@@ -133,7 +139,12 @@ def check_ci(repo: str, cfg: dict) -> tuple[bool, list[str]]:
     refs = re.findall(r"(Felix2yu/\.github/\.github/workflows/[\w-]+\.yml)@(\S+)", blob)
     notes: list[str] = []
     if not refs:
-        return False, ["未调用 Felix2yu/.github 的 reusable workflow（仍是私有实现？）"]
+        # 不是所有仓库都该调 reusable：reusable-test.yml 的契约是
+        # 「go-dir 留空则只跑 web-dir」，纯 Python 仓库两者都没有，硬接只会
+        # 得到一个什么都不做的绿灯。这类例外必须显式登记并写明理由。
+        if cfg.get("ci_exempt"):
+            return True, [f"已登记例外：{cfg['ci_exempt']}"]
+        return False, ["未调用 Felix2yu/.github 的 reusable workflow，且未登记例外（见 REPOS 的 ci_exempt）"]
     for name, ref in refs:
         ref = ref.strip().strip("'\"")
         if ref in ("main", "master"):
