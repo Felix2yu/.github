@@ -165,19 +165,45 @@ def check_frontend(repo: str, cfg: dict) -> tuple[bool, list[str]] | None:
     return (not notes), notes
 
 
-def check_ignore(repo: str, cfg: dict) -> tuple[bool, list[str]]:
+def _has_ignore_entry(text: str, *names: str) -> bool:
+    """gitignore 里是否有精确指向该目录/文件的条目。
+
+    按行解析而不是子串搜索，也不是要求固定写法：`bin/`、`/bin/`、`bin` 都算，
+    而 `binding/` 不该算。早期版本用 `/bin/` 正则，把写 `bin/` 的仓库全部误判成缺。
+    """
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("/").rstrip("/")
+        if not line or line.startswith("#"):
+            continue
+        if line in names or line.startswith("**/") and line[3:] in names:
+            return True
+    return False
+
+
+def check_ignore(repo: str, cfg: dict) -> tuple[bool, list[str], list[str]]:
+    """返回 (是否通过, 硬缺口, 软提示)。
+
+    「有没有忽略 Go 产物」只给软提示：写 `bin/` 是一种做法，写具体产物名
+    （qbhive 的 `./bthive`、bili-dl 的 `bili-dl`）同样有效、还更精确。
+    强制写成 `bin/` 是教条的，会逼人把本来正确的写法改掉。
+    """
     text = read(repo, ".gitignore") or ""
     notes: list[str] = []
+    soft: list[str] = []
     if not text.strip():
-        return False, ["缺 .gitignore"]
+        return False, ["缺 .gitignore"], []
     web = cfg.get("web")
     if cfg.get("npm", True) and web and "node_modules" not in text:
         notes.append("未忽略 node_modules")
-    if web and not re.search(r"\b(dist|build)\b", text):
+    if web and not (_has_ignore_entry(text, "dist", "build", "output", ".output")
+                    or "dist/" in text or "build/" in text):
         notes.append("未忽略前端产物 dist/ 或 build/")
-    if cfg["lang"] == "go" and not re.search(r"\.exe$|/bin/|\bbinary\b", text, re.M):
-        notes.append("未忽略 Go 编译产物（*.exe / bin/）")
-    return (not notes), notes
+    if cfg["lang"] == "go" and not (_has_ignore_entry(text, "bin") or "*.exe" in text):
+        has_bin = exists(repo, "Dockerfile") and bool(
+            re.search(r"COPY\s+--chmod=\d+\s+bin/", read(repo, "Dockerfile") or ""))
+        soft.append("未见 bin/ 或 *.exe —— 若已写具体产物名（如 ./bili-dl）则无需改"
+                    + ("；但 Dockerfile 会从 bin/ COPY，建议补上" if has_bin else ""))
+    return (not notes), notes, soft
 
 
 # ---------------------------------------------------------------- 主流程
@@ -207,7 +233,7 @@ def main() -> int:
         p_ok, p_notes = check_dependabot(repo, cfg)
         c_ok, c_notes = check_ci(repo, cfg)
         fe = check_frontend(repo, cfg)
-        i_ok, i_notes = check_ignore(repo, cfg)
+        i_ok, i_notes, i_soft = check_ignore(repo, cfg)
 
         fe_mark = "--" if fe is None else ("OK" if fe[0] else "NG")
         fe_notes = [] if fe is None else fe[1]
@@ -219,7 +245,7 @@ def main() -> int:
 
         notes = ([f"[文档] {n}" for n in d_notes] + [f"[依赖更新] {n}" for n in p_notes]
                  + [f"[CI] {n}" for n in c_notes] + [f"[前端] {n}" for n in fe_notes]
-                 + [f"[忽略] {n}" for n in i_notes])
+                 + [f"[忽略] {n}" for n in i_notes] + [f"[忽略·软提示] {n}" for n in i_soft])
         if notes:
             details.append((repo, notes))
 

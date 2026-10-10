@@ -52,10 +52,23 @@ docker compose up -d        # 或本地怎么跑
 
 ## 三、LICENSE
 
-自研仓库一律补 MIT（与其它仓库一致）。fork 的第三方仓库沿用上游协议，不覆盖。
+自研仓库统一用 **MIT**：
 
-补 LICENSE 这件事五分钟能做完，不做的话**默认状态是「保留所有权利」**——别人不能
-复制、不能改、不能用，哪怕你的仓库是 public 的。
+```
+MIT License
+
+Copyright (c) 2026 Felix2yu
+```
+
+与 mujian / qiansi 现有的一致——复制它们的 LICENSE 即可，不要手写协议正文
+（手写容易漏掉最后的「AS IS」免责段落，那一段才是真正起作用的）。
+
+**fork 的第三方仓库沿用上游，不要覆盖**：ntfy / healthchecks 是 Apache 2.0、
+docker-db-auto-backup 是 BSD 3-Clause，改掉会在下次 merge 上游时变成永久冲突。
+
+> 顺带一提：`CC BY-NC` 这类知识共享协议**不适合用在源代码上**（它没有专利条款，
+> 且 NC 条款会禁止商业使用，包括「公司内网跑一个」这种）。看到某个仓库用了它，
+> 值得回头确认是不是当初随手选的。
 
 ---
 
