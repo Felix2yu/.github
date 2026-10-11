@@ -129,6 +129,18 @@
 8. **更新流程**：有明确的旧 SW 接管策略（`skipWaiting` + `clients.claim`，或提示用户刷新）。
 9. **敏感路径隔离**：`/api/**`、认证相关路径不得被导航回落吞掉（bundler 系用 `navigateFallbackDenylist`）。
 
+### 整节豁免：按设计不挂 SW
+
+只有一种情形成立——**应用离线时没有任何可展示的内容**，兜底页反而误导。自托管的监控面板属于这一类：断网时它连数据源都够不到，缓存一层壳页只会让人以为看到的是最新状态。
+
+豁免必须留下痕迹，不能口头宣布：
+
+1. 仓库在 `scripts/check-pwa.py` 的 `REPOS` 里登记 `sw_none=True` 并写 `sw_note` 说明理由；
+2. §一~三（资产 / head / manifest）全绿——豁免的是缓存层，不是安装元信息；
+3. §五表里 SW 列记 `—`，脚注写明理由。
+
+代价要说清楚，别拿规范文本推断：Chromium 系早年把「注册了带 `fetch` 处理器的 SW」当安装判据，某个版本起是否仍要求，**以真实浏览器实测为准**。不满足判据时的表现是地址栏/菜单里没有安装入口，其余功能不受影响；iOS Safari 从不要求 SW。
+
 ---
 
 ## 五、现状符合度（2026-10-10，整改后实测）
@@ -151,6 +163,7 @@
 | 货殖 huozhi | SvelteKit | vite-pwa | ● | ● | ● | ● |
 | 牵丝 qiansi | Svelte+Vite | vite-pwa | ● | ● | ● | ● |
 | 察新 chaxin | Go+原生 | 手写 | ● | ● | ● | ● |
+| 飞檄 feixi | React+Vite+Go | 无（按设计） | ● | ● | ● | — |
 
 **脚注（不构成缺口）**
 
@@ -159,6 +172,7 @@
 - **月汐**：七件图标资产由 Go 运行时动态绘制（无磁盘文件），路由覆盖与契约一致。
 - **流霞 / 图切 / 月汐**：manifest 路径保留 `/manifest.json`，但以 `application/manifest+json` 显式响应（见第三节，合规）。
 - **ntfy**：manifest 由 Go `handleWebManifest` 动态生成，screenshots 复用应用图标（上游行为，保留）。
+- **飞檄**：自托管的死信开关，断网时面板没有可展示的数据，按 §四豁免段不注册 Service Worker；图标与 manifest 走 Vite 的 `public/`，`.webmanifest` 的 MIME 由 Go 显式给出（`mime.TypeByExtension` 不认这个扩展名）。
 
 > 本表之前的一版「基线表」（含多处 ◐/○）记录的是整改前状态，历史差异见 `PWA支持现状审计.md` §六整改记录。RSSRob / WebMonitor / QBHive / whoami / healthchecks 明确不做 PWA，不在本表范围。
 
@@ -184,7 +198,7 @@ python3 scripts/check-pwa.py shenshi    # 只看指定仓库
 - [x] `apple-touch-icon` 为 PNG 且不透明（需 Pillow）
 - [x] `<head>` 含 `theme-color` / `manifest` link / iOS meta / 四档 icon 声明
 - [x] manifest 含 `id` / `scope` / `categories`，`any` 与 `maskable` 分离
-- [x] SW 存在，且缓存名版本化、`activate` 清旧、离线条目有上限
+- [x] SW 存在（或已按 §四登记 `sw_none` 豁免），且缓存名版本化、`activate` 清旧、离线条目有上限
 - [x] 构建产物中图标 / manifest / SW 均存在且路径正确（产物存在时）
 
 > 没装 Pillow 时脚本仍会跑完，只是跳过位图深度校验并在结尾提示

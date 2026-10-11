@@ -6,10 +6,17 @@
     {{DARK_BG}}    深色主题色
     {{APP_NAME}}   应用全称（iOS 主屏名）
   约定：icon 声明顺序 = ico → svg → 192 png；apple-touch 固定 180 png。
+  theme-color 两选一，别混用（见 ../PWA规范.md §二）：
+    A 案 主题跟随系统外观 → 用下面两条，浅色在前、深色在后
+    B 案 主题由应用内设置决定 → 删掉那两条，换成末尾注释里的单条 + JS 改 content
+  三条并存是被禁止的写法：各家 UA 对「多个 theme-color 谁生效」语义不统一，
+  无 media 的那条会反过来盖掉分档，等于白写。
 -->
 <meta name="theme-color" content="{{LIGHT_BG}}" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="{{DARK_BG}}" media="(prefers-color-scheme: dark)" />
+<!-- B 案：改用这一条，并在主题切换时同步它的 content
 <meta name="theme-color" content="{{LIGHT_BG}}" />
+-->
 <link rel="manifest" href="{{MANIFEST}}" />
 
 <!-- iOS / Android 安装元信息 -->

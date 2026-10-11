@@ -376,16 +376,17 @@ manifest 字段、SW 行为），写进任何一个项目里都只有那一个�
 - [x] 图标七件套齐全，`maskable` 为独立位图、满幅、主体在 80% 安全圆内
 - [x] `<head>` 含静态 light/dark `theme-color` + `manifest` link + iOS meta + 四档 icon 声明
 - [x] manifest 含 `id` / `scope` / `categories`，`any` 与 `maskable` 分离
-- [x] SW 缓存名版本化、`activate` 清旧、离线条目有上限、有离线兜底
+- [x] SW 缓存名版本化、`activate` 清旧、离线条目有上限、有离线兜底（或按规范 §四登记 `sw_none` 豁免）
 - [ ] manifest 以 `application/manifest+json` 响应（Go 侧要显式设，见规范第三节）
 - [ ] 敏感路径（`/api/**`、认证）不被导航回落吞掉
 - [ ] 主题色在浅/深两种外观下都正确（A 案两条 / B 案单条 + JS 覆盖，别混用）
-- [ ] 真实浏览器验证：DevTools → Application → Manifest 无警告 / Service Workers 已激活
+- [ ] 真实浏览器验证：DevTools → Application → Manifest 无警告 / Service Workers 已激活（登记了 `sw_none` 的仓库只验前者，另需确认安装入口真的出现）
 
 > 脚本的 Pillow 是**可选**依赖：没装也能跑完，只是跳过位图深度校验。
 > 想校验 maskable 是否满幅透明、主体是否居中，再 `pip install pillow`。
 
-**现状**：12 个 Web 应用全绿（`python3 scripts/check-pwa.py`）。
+**现状**：登记 13 个 Web 应用，12 个全绿（`python3 scripts/check-pwa.py`）；mujian 的 SW 未见离线兜底待修。
+飞檄按设计不挂 SW（规范 §四豁免段）。
 RSSRob / WebMonitor / QBHive / whoami / healthchecks 明确不做 PWA，不在范围内。
 
 ---
@@ -430,7 +431,7 @@ python3 scripts/check-cpu-baseline.py        # CPU 指令集基线
 
 | 报告 | 结论 |
 |---|---|
-| PWA 契约 | 12 个 Web 应用全绿 |
+| PWA 契约 | 登记 13 个 Web 应用，12 个全绿（飞檄登记 `sw_none`；mujian 的 SW 待修） |
 | 容器镜像 | 16 个有 Dockerfile 的仓库，6 个全绿，10 个待修（多为以 root 运行 / 无探活） |
 | 仓库基线 | 17 个自研仓库全绿 |
 | CPU 指令集 | 10 个 `CGO_ENABLED=0` 仓库全绿（ymm 基线 3523~6965，全部 CPUID 门控）；2 个 CGO 仓走固定基线容器 |

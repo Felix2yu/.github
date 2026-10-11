@@ -70,6 +70,10 @@ REPOS: dict[str, dict] = {
                    mf="web/vite.config.ts", sw=None),
     "chaxin": dict(html="web/index.html", static="web",
                    mf="web/manifest.webmanifest", sw="web/sw.js"),
+    # 自托管的死信开关：断网时面板里没有可展示的数据，按设计不挂 SW（docs/PWA.md §四豁免段）
+    "feixi": dict(html="internal/web/index.html", static="internal/web/public",
+                  mf="internal/web/public/manifest.webmanifest", sw=None,
+                  sw_none=True, sw_note="离线无内容可服务，有意不做"),
 }
 
 ASSETS = ["favicon.ico", "favicon.svg", "icon-192.png", "icon-512.png",
@@ -267,6 +271,9 @@ def check_manifest(repo: str, cfg: dict) -> tuple[bool, list[str]]:
 
 
 def check_sw(repo: str, cfg: dict) -> tuple[bool, list[str]]:
+    if cfg.get("sw_none"):
+        # 与 icons_dynamic 同类的处理：形态不同但理由成立，登记为豁免而非缺失。
+        return True, [f"按设计不挂 SW（{cfg.get('sw_note', '见 REPOS 注释')}），不计缺失"]
     text = read(repo, cfg.get("sw"))
     if text is None:
         # 无手写 sw.js 的仓库走插件生成，只能确认声明存在
