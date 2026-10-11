@@ -386,7 +386,7 @@ manifest 字段、SW 行为），写进任何一个项目里都只有那一个�
 > 想校验 maskable 是否满幅透明、主体是否居中，再 `pip install pillow`。
 
 **现状**：登记 13 个 Web 应用，12 个全绿（`python3 scripts/check-pwa.py`）；mujian 的 SW 未见离线兜底待修。
-飞檄按设计不挂 SW（规范 §四豁免段）。
+飞檄的 SW 只 precache 壳与静态资源、数据接口不缓存也不兜底（满足 §四但不承诺离线，见 §五脚注）。
 RSSRob / WebMonitor / QBHive / whoami / healthchecks 明确不做 PWA，不在范围内。
 
 ---
@@ -431,7 +431,7 @@ python3 scripts/check-cpu-baseline.py        # CPU 指令集基线
 
 | 报告 | 结论 |
 |---|---|
-| PWA 契约 | 登记 13 个 Web 应用，12 个全绿（飞檄登记 `sw_none`；mujian 的 SW 待修） |
+| PWA 契约 | 登记 13 个 Web 应用，12 个全绿（mujian 的 SW 待修；飞檄的 SW 只 precache 壳） |
 | 容器镜像 | 16 个有 Dockerfile 的仓库，6 个全绿，10 个待修（多为以 root 运行 / 无探活） |
 | 仓库基线 | 17 个自研仓库全绿 |
 | CPU 指令集 | 10 个 `CGO_ENABLED=0` 仓库全绿（ymm 基线 3523~6965，全部 CPUID 门控）；2 个 CGO 仓走固定基线容器 |

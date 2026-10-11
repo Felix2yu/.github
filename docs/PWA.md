@@ -141,6 +141,8 @@
 
 代价要说清楚，别拿规范文本推断：Chromium 系早年把「注册了带 `fetch` 处理器的 SW」当安装判据，某个版本起是否仍要求，**以真实浏览器实测为准**。不满足判据时的表现是地址栏/菜单里没有安装入口，其余功能不受影响；iOS Safari 从不要求 SW。
 
+> 截至 2026-10-11 **没有仓库登记使用这一豁免**（飞檄曾按此登记，后改为挂一个只 precache 壳的 SW）。留着是因为确实有「离线无内容可服务」这一类应用，别拿它当省事的出口。
+
 ---
 
 ## 五、现状符合度（2026-10-10，整改后实测）
@@ -163,7 +165,7 @@
 | 货殖 huozhi | SvelteKit | vite-pwa | ● | ● | ● | ● |
 | 牵丝 qiansi | Svelte+Vite | vite-pwa | ● | ● | ● | ● |
 | 察新 chaxin | Go+原生 | 手写 | ● | ● | ● | ● |
-| 飞檄 feixi | React+Vite+Go | 无（按设计） | ● | ● | ● | — |
+| 飞檄 feixi | React+Vite+Go | 手写 | ● | ● | ● | ● |
 
 **脚注（不构成缺口）**
 
@@ -172,7 +174,7 @@
 - **月汐**：七件图标资产由 Go 运行时动态绘制（无磁盘文件），路由覆盖与契约一致。
 - **流霞 / 图切 / 月汐**：manifest 路径保留 `/manifest.json`，但以 `application/manifest+json` 显式响应（见第三节，合规）。
 - **ntfy**：manifest 由 Go `handleWebManifest` 动态生成，screenshots 复用应用图标（上游行为，保留）。
-- **飞檄**：自托管的死信开关，断网时面板没有可展示的数据，按 §四豁免段不注册 Service Worker；图标与 manifest 走 Vite 的 `public/`，`.webmanifest` 的 MIME 由 Go 显式给出（`mime.TypeByExtension` 不认这个扩展名）。
+- **飞檄**：手写 `public/sw.js` 只 precache 本次构建的壳与静态资源，`/api`、`/front`、`/ping`、`/badge` 既不缓存也不做导航回落之外的兜底 —— 满足第四节的行为契约，但**不承诺离线**（断网时是上一次构建的空壳加空态）。`.webmanifest` 的 MIME 由 Go 显式给出（`mime.TypeByExtension` 不认这个扩展名）。
 
 > 本表之前的一版「基线表」（含多处 ◐/○）记录的是整改前状态，历史差异见 `PWA支持现状审计.md` §六整改记录。RSSRob / WebMonitor / QBHive / whoami / healthchecks 明确不做 PWA，不在本表范围。
 

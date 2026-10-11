@@ -70,10 +70,10 @@ REPOS: dict[str, dict] = {
                    mf="web/vite.config.ts", sw=None),
     "chaxin": dict(html="web/index.html", static="web",
                    mf="web/manifest.webmanifest", sw="web/sw.js"),
-    # 自托管的死信开关：断网时面板里没有可展示的数据，按设计不挂 SW（docs/PWA.md §四豁免段）
+    # 手写 sw.js 只做「本次构建的壳 + 静态资源」秒开：/api /front /ping /badge 一律不缓存也不回落，
+    # 断网时打开的是上一次构建的空壳 + 空态，而不是旧数据冒充新数据。
     "feixi": dict(html="internal/web/index.html", static="internal/web/public",
-                  mf="internal/web/public/manifest.webmanifest", sw=None,
-                  sw_none=True, sw_note="离线无内容可服务，有意不做"),
+                  mf="internal/web/public/manifest.webmanifest", sw="internal/web/public/sw.js"),
 }
 
 ASSETS = ["favicon.ico", "favicon.svg", "icon-192.png", "icon-512.png",
