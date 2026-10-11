@@ -33,6 +33,7 @@ WORKSPACE = ROOT.parent
 # health_exempt：探活手段在编排层之外（如 k8s probe）的，写明原因。
 REPOS: dict[str, dict] = {
     "shenshi": dict(df=["Dockerfile"], compose="docker-compose.yml"),
+    "feixi": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "mujian": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "diarum": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "bili-history": dict(df=["Dockerfile"], compose="docker-compose.yml"),

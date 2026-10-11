@@ -67,6 +67,9 @@ GO = shutil.which("go") or "/opt/homebrew/bin/go"
 #   - CGO 路径：基线由第三方静态库主导，量级完全不同，单独登记。
 REPOS: dict[str, dict] = {
     "qiansi": dict(go_dir=".", main_pkg="./cmd/server", cgo="off", baseline=(4043, 496)),
+    # CGO_ENABLED=0（modernc.org/sqlite 是纯 Go 驱动），走纯 Go 基线。
+    # 本机无 objdump，4043/496 是沿用同组纯 Go 仓库的基线值，首次扫到产物时按实测校正。
+    "feixi": dict(go_dir=".", main_pkg="./cmd/feixi", cgo="off", baseline=(4043, 496)),
     "shenshi": dict(go_dir="server", main_pkg=".", cgo="off", baseline=(4043, 496)),
     "liuxia": dict(go_dir=".", main_pkg=".", cgo="off", baseline=(4043, 496)),
     "yuexi": dict(go_dir=".", main_pkg=".", cgo="off", baseline=(4043, 496)),

@@ -320,6 +320,7 @@ Node 同样拉平到一个版本：8 个前端仓库的仓库根 `.nvmrc` 现在
 
 | 仓库 | go-dir | main-package | binary-name | image-name | web-dir | cgo | 需额外设置 |
 |---|---|---|---|---|---|---|---|
+| feixi | `.` | `./cmd/feixi` | `feixi` | `ghcr.io/felix2yu/feixi` | `internal/web` | off | 无需 `frontend-stage-command`：go:embed 目录就是 `internal/web/dist`；`test-packages: ./...`（占位 dist 已提交，未构建前端也能编译） |
 | shenshi | `server` | `.` | `shenshi` | `ghcr.io/felix2yu/shenshi` | `web` | off | `frontend-stage-command` 拷 `web/dist` → `server/dist`（go:embed）；`test-packages: ./internal/...` |
 | qiansi | `.` | `./cmd/server` | `qiansi` | `ghcr.io/felix2yu/qiansi` | `web` | off | `codecov-disable-search: true`；前端另打 `web-dist.zip`；TS 6/7 并存的 peer 规则写在 `web/pnpm-workspace.yaml` |
 | mujian | `backend` | `.` | `mujian` | `ghcr.io/felix2yu/mujian` | `frontend` | **glibc** | `test-cgo: '1'`；`frontend-stage-command` 拷 `frontend/dist` → `backend/dist` |
