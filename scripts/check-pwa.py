@@ -74,6 +74,11 @@ REPOS: dict[str, dict] = {
     # 断网时打开的是上一次构建的空壳 + 空态，而不是旧数据冒充新数据。
     "feixi": dict(html="internal/web/index.html", static="internal/web/public",
                   mf="internal/web/public/manifest.webmanifest", sw="internal/web/public/sw.js"),
+    # 知常：SvelteKit 3 不支持 transformIndexHtml（插件注入不了注册脚本、也产不出 sw.js），
+    # @vite-pwa/sveltekit 的 peer 又只到 Kit ^2，因此走预设模板：
+    # manifest 是静态文件，SW 由 scripts/gen-sw.mjs 注入构建版本后落到 build/sw.js。
+    "zhichang": dict(html="web/src/app.html", static="web/static",
+                     mf="web/static/manifest.webmanifest", sw="web/src/sw-template.js"),
 }
 
 ASSETS = ["favicon.ico", "favicon.svg", "icon-192.png", "icon-512.png",
