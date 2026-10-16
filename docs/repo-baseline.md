@@ -106,8 +106,12 @@ workflow，以及有没有写 `@main`。
 
 ## 六、fork / 第三方仓库
 
-`healthchecks`、`whoami`、`GoldPrice`、`ntfyx` 这类以跟踪上游为主的仓库，
+`healthchecks`、`GoldPrice`、`ntfyx` 这类以跟踪上游为主的仓库，
 README / LICENSE 沿用上游即可，不参与本仓群契约。脚本默认跳过它们（`--all` 可见）。
+
+> `whoami` 早先被归入此类，2026-10-16 经确认为**自研仓库**（只是早期借鉴了上游
+> 形态），已移出本名单：按清单补 LICENSE 与 dependabot，纳入契约检查
+> （迁移批次见 [project-structure.md](project-structure.md) 第三节）。
 
 **判断标准**：如果你打算定期 merge 上游，`upstream/main` 改到的文件就是你的禁区；
 如果只是借来部署，那它就是自研仓库，按清单补齐。

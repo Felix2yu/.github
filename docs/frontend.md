@@ -108,7 +108,16 @@ onlyBuiltDependencies:
 ## 四、产物放哪
 
 装配式 CI 要把前端产物搬到 Go 的 `go:embed` 位置，靠的是 `frontend-stage-command`。
-各仓库的位置不一致是历史原因，**不要为了统一而统一**（改路径可能打断已经跑着的服务）：
+
+> **本节原立场已限位（2026-10-16，见 [project-structure.md](project-structure.md)）**：
+> 「各仓库的位置不一致是历史原因，不要为了统一而统一」对**已运行服务的运行时产物路径**
+> （容器内 `/app/web/dist`、`QIANSI_WEB_DIR` 这类 env 契约）依然有效——那确实不该为
+> 统一而统一；但**源码目录结构**（前端目录名、Go 模块位置、embed 位、entrypoint 位置）
+> 自该日起按 project-structure.md 有意统一。理由：目录名分裂使 CI 输入、dependabot
+> `directory`、check-repo-baseline 的 `REPOS` 三处重复维护同一份事实，且 internal/web
+> 混居型（feixi）已违反「web/ 是前端工程」的心智模型。
+
+各仓库当前的产物位置如下，**迁移批次与目标形态见 project-structure.md 第三节**：
 
 | 仓库 | 前端目录 | 产物落到 |
 |---|---|---|

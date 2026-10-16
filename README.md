@@ -20,6 +20,7 @@ Felix2yu/.github/
 │   ├── repo-baseline.md       仓库基线（README / LICENSE / CI / 三件套 / 忽略规则）
 │   ├── dependabot.md          依赖更新配置与合并策略
 │   ├── frontend.md            前端工具链契约（Node / pnpm / 产物位置）
+│   ├── project-structure.md   项目结构（目录树 / 职责 / 差异矩阵 / 迁移 SOP）
 │   ├── release.md             发布规范（版本注入 / tag / CHANGELOG）
 │   └── cpu-baseline.md        CPU 指令集基线（CGO 编译环境 / AVX 门控 / 基线实测值）
 ├── preset/
@@ -134,7 +135,7 @@ jobs:
 | `frontend-coverage-file` | string | `''` | 相对仓库根 |
 | `codecov-flag-go` / `codecov-flag-web` | string | `backend` / `frontend` | |
 | `codecov-disable-search` | boolean | `false` | qiansi = true |
-| `runs-on` | string | `ubuntu-24.04` | |
+| `runs-on` | string | `ubuntu-26.04` | |
 
 secrets：`CODECOV_TOKEN`（`required: false`）
 
@@ -159,7 +160,7 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 | `build-ldflags` | string | `-s -w` | |
 | `web-dir` / `node-version-file` / `web-build-command` / `frontend-stage-command` | | | 同 test |
 | `frontend-stage-command` | string | `''` | 仓库根执行：把前端产物摆到 `go:embed` 位置和/或 `dist/` |
-| `runner-amd64` / `runner-arm64` | string | `ubuntu-24.04` / `ubuntu-24.04-arm` | |
+| `runner-amd64` / `runner-arm64` | string | `ubuntu-26.04` / `ubuntu-26.04-arm` | |
 | `build-args` | string | `''` | |
 | `push-images` | boolean | `true` | |
 
@@ -277,7 +278,7 @@ var version = "dev"
 - fork / Dependabot PR 的 token 只读、secrets 为空，login / push / codecov 都需 `if` 守卫
 - `download-artifact@v8` 必须配 `digest-mismatch: warn`（upload 用 v7，无 digest 元数据）
 - GHA 缓存 scope 带 `binary-name` 维度，避免跨仓库撞车；仓库上限 10GB
-- runner 必须写死版本（如 `ubuntu-24.04`），用 `ubuntu-latest` 会在大版本轮换时静默改 glibc
+- runner 必须写死版本（如 `ubuntu-26.04`），用 `ubuntu-latest` 会在大版本轮换时静默改 glibc
 - **调用方传了被调 workflow 未声明的 input 会直接 `startup_failure`**：没有 job、没有日志，
   只能看到 conclusion。排查时第一件事是比对两边 input 名是否一一对应
 - **装配式 Dockerfile 要求 `.dockerignore` 不得排除 `bin/` 与 `dist/`**：
@@ -306,6 +307,10 @@ var version = "dev"
 
 套用时**需要按仓库调整的只有 6 类键**：`go-dir`、`main-package`、`binary-name`、
 `image-name`、`web-dir` + `frontend-stage-command`、`test-packages`。
+
+> 本表随 [project-structure.md](docs/project-structure.md) 的迁移批次更新：目录改名
+> （`frontend`→`web`、`site`→`web`、`internal/web`→`web`）与模块回根
+> （`server`/`backend`→`.`）都会动这里的 `go-dir` / `web-dir` 两列。
 
 带前端的仓库另外要各交一份三件套（见第一节规则 4），`packageManager` **全组织统一**：
 `"packageManager": "pnpm@11.22.0"`——它是 pnpm 版本的唯一来源，workflow 里不再有 `version: 11`。
@@ -394,13 +399,14 @@ RSSRob / WebMonitor / QBHive / whoami / healthchecks 明确不做 PWA，不在�
 
 ## 十、其它契约：容器 / 仓库基线 / 依赖 / 前端 / 发布 / CPU 指令集
 
-PWA 之外还有六类东西同样是「跨仓库契约」——放进任何一个项目里，只有那一个项目
+PWA 之外还有七类东西同样是「跨仓库契约」——放进任何一个项目里，只有那一个项目
 看得到，而且会以「静默缺陷」的形式腐烂：**不做也不报错**。
 
 | 主题 | 契约文档 | 自检命令 | 不做的后果 |
 |---|---|---|---|
 | 容器镜像 | [`docs/docker.md`](docs/docker.md) | `python3 scripts/check-docker.py` | 以 root 跑、`:latest` 漂移、`.dockerignore` 埋雷、`HEALTHCHECK` 探在鉴权端点上 |
 | 仓库基线 | [`docs/repo-baseline.md`](docs/repo-baseline.md) | `python3 scripts/check-repo-baseline.py` | 缺 LICENSE 别人不能用、缺 dependabot 依赖停更、缺 CI 无人验证分支 |
+| 项目结构 | [`docs/project-structure.md`](docs/project-structure.md) | 人工清单（该文第五节） | 目录名分裂使 CI 输入、dependabot directory、REPOS 三处重复维护同一份事实 |
 | 依赖更新 | [`docs/dependabot.md`](docs/dependabot.md) | 同上「依赖更新」列 | 每周十几个 PR，最后没人看；CVE 半年无人知 |
 | 前端工具链 | [`docs/frontend.md`](docs/frontend.md) | 同上「前端三件套」列 | CI 猜 Node 版本；`overrides` 在 pnpm 下空转 |
 | 发布 | [`docs/release.md`](docs/release.md) | —（人工核对） | 二进制里写着 `dev`；容器里 `GLIBC_2.43 not found` |
