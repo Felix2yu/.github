@@ -109,14 +109,27 @@ Svelte/SvelteKit 前端把 `typescript@~6` 当 **JS 编译器 API 宿主**用，
 `svelte-check`、`typescript-eslint` 都 require 它；而 `typescript@7.0.2` 是原生(Go)编译器，
 `require('typescript')` 只剩版本号，`ts.sys` / `ts.createProgram` 全是 `undefined`。
 把它直接提上去，diarum/guanfu/huozhi/qiansi/qingye 五个 PR 的 CI 在同一条 `write_tsconfig`
-崩溃点上失败，`pnpm install` 的 postinstall 就红，压根到不了类型检查。TS7 的正确入口是
-`"@typescript/native": "npm:typescript@^7.0.2"` 别名 + `svelte-check --tsgo`（huozhi、qiansi
-已经这么装着）。
+崩溃点上失败，`pnpm install` 的 postinstall 就红，压根到不了类型检查。
 
-顺带记两条踩过的坑：别名装好后 `node_modules/.bin/tsc --version` 会显示 7.0.2，而编译器 API
-仍是 6.0.3，别拿它判断实际版本；`--tsgo` 与 TS6 两条路径的诊断集合**互有盲区**（diarum 的
-`.svelte` 里 4 个真实错误只有 TS6 报，qiansi 的 6 个 `'auto' is possibly 'null'` 只有 `--tsgo`
-报且实为 `{#if}` 窄化误报），所以任何一条路径的「0 errors」都不能单独当作通过。
+**本仓群统一只走 `svelte-check` 的默认路径，不装 `@typescript/native` 别名、不用 `--tsgo`。**
+曾经有两条路并存，2026-10-16 实测后收敛到这一条：
+
+- 别名那套的收益很小。同一棵树上分别计时 `svelte-check` 与 `svelte-check --tsgo`：
+  diarum `site`（66 个源文件）3.3s → 1.7s，qingye `web`（32）2.0s → 1.3s，
+  qiansi `web`（34）2.8s → 2.1s，guanfu `web`（7）1.4s → 1.0s —— 省的是 0.4~1.6 秒，
+  而 `vite build` 完全不吃编译器（esbuild 只转译），CI 总时长基本不动。
+- 而风险是「静默空转」。huozhi 的 `--tsgo` 因为 `#lib/*` 声明在 `package.json` 的 `imports`
+  里、它自己的虚拟文件布局解析不到，类型程序是空的：往 `.ts` 与 `.svelte` 各注入一个硬错误，
+  `--tsgo` 仍然报 `found 0 errors`，去掉 `--tsgo` 则两条都抓到。a11y 警告照常输出，
+  所以那盏绿灯看起来完全可信。
+
+两条路各自还有不同的盲区，任一条的「0 errors」都不能单独当作通过：diarum `.svelte` 里的
+4 个真实错误只有默认路径报（`Cannot find name 'pb'` 这类硬错误），qiansi 的 6 条
+`'auto' is possibly 'null'` 只有 `--tsgo` 报 —— 那是 `bind:` 写回被编译成闭包、
+TS 在闭包里重置了可重赋值 `let` 的窄化，属真实诊断，已用 `{@const}` 修掉。
+
+另一条容易误判的坑：装了别名之后 `node_modules/.bin/tsc --version` 会显示 7.0.2，
+而编译器 API 仍是 6.0.3，别拿它判断实际版本。
 
 ---
 
