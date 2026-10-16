@@ -103,6 +103,21 @@ pnpm 严格得多，常见报错 `ERR_PNPM_PEER_DEP_ISSUES`。处理优先级：
 **必须写注释说明理由。** 三个月后没人记得为什么要锁它，`eslint` 已经在墙外落后三个
 大版本，而删除这行的人也无法判断当时是不是有正当理由。
 
+模板已内置一条这样的 ignore：`typescript` 的 major。2026-10-16 实测：本仓群的
+Svelte/SvelteKit 前端把 `typescript@~6` 当 **JS 编译器 API 宿主**用，`@sveltejs/kit` 的
+`svelte-kit sync`（`src/core/sync/write_tsconfig/index.js:194` 读 `ts.sys.readFile`）、
+`svelte-check`、`typescript-eslint` 都 require 它；而 `typescript@7.0.2` 是原生(Go)编译器，
+`require('typescript')` 只剩版本号，`ts.sys` / `ts.createProgram` 全是 `undefined`。
+把它直接提上去，diarum/guanfu/huozhi/qiansi/qingye 五个 PR 的 CI 在同一条 `write_tsconfig`
+崩溃点上失败，`pnpm install` 的 postinstall 就红，压根到不了类型检查。TS7 的正确入口是
+`"@typescript/native": "npm:typescript@^7.0.2"` 别名 + `svelte-check --tsgo`（huozhi、qiansi
+已经这么装着）。
+
+顺带记两条踩过的坑：别名装好后 `node_modules/.bin/tsc --version` 会显示 7.0.2，而编译器 API
+仍是 6.0.3，别拿它判断实际版本；`--tsgo` 与 TS6 两条路径的诊断集合**互有盲区**（diarum 的
+`.svelte` 里 4 个真实错误只有 TS6 报，qiansi 的 6 个 `'auto' is possibly 'null'` 只有 `--tsgo`
+报且实为 `{#if}` 窄化误报），所以任何一条路径的「0 errors」都不能单独当作通过。
+
 ---
 
 ## 七、Dependabot 管不到的
