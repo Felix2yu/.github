@@ -36,7 +36,8 @@ REPOS: dict[str, dict] = {
     "guanfu": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "feixi": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "mujian": dict(df=["Dockerfile"], compose="docker-compose.yml"),
-    "diarum": dict(df=["Dockerfile"], compose="docker-compose.yml"),
+    # diarum 无 compose（登记的 docker-compose.yml 是历史漂移，读取失败会静默降级）
+    "diarum": dict(df=["Dockerfile"], compose=None),
     "bili-history": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "liuxia": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "chaxin": dict(df=["Dockerfile"], compose="docker-compose.yml"),

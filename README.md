@@ -332,10 +332,10 @@ Node 同样拉平到一个版本：8 个前端仓库的仓库根 `.nvmrc` 现在
 | guanfu | `.` | `./cmd/guanfu` | `guanfu` | `ghcr.io/felix2yu/guanfu` | `web` | off | `web-build-command: pnpm run check && pnpm run build`（SvelteKit 带类型）；`frontend-stage-command` 拷 `web/build` → `internal/web/dist`（go:embed，仓库里只有 `.gitkeep` 占位）；`test-packages: ./...` |
 | qiansi | `.` | `./cmd/server` | `qiansi` | `ghcr.io/felix2yu/qiansi` | `web` | off | `codecov-disable-search: true`；前端另打 `web-dist.zip`；TS 6/7 并存的 peer 规则写在 `web/pnpm-workspace.yaml` |
 | mujian | `backend` | `.` | `mujian` | `ghcr.io/felix2yu/mujian` | `frontend` | **glibc** | `test-cgo: '1'`；`frontend-stage-command` 拷 `frontend/dist` → `backend/dist` |
-| huozhi | `backend` | `./cmd/huozhi-server` | `huozhi-server` | `ghcr.io/felix2yu/huozhi` | `frontend` | off | `web-test-command: pnpm run test:coverage` + `frontend-coverage-file` |
+| huozhi | `.` | `./cmd/huozhi-server` | `huozhi-server` | `ghcr.io/felix2yu/huozhi` | `web` | off | `web-test-command: pnpm run test:coverage` + `frontend-coverage-file` |
 | qingye | `server` | `.` | `qingye` | `ghcr.io/felix2yu/qingye` | `web` | off | `web-build-command: pnpm run check && pnpm run build` + `web-test-command: pnpm run test`（原来自有的 web-check job 已删，SvelteKit 的 check 走这里） |
-| diarum | `.` | `.` | `diarum` | `ghcr.io/felix2yu/diarum` | `site` | off | `version-var: main.Version`（本仓库变量是大写） |
-| bili-history | `backend` | `./cmd` | `bili-history` | `ghcr.io/felix2yu/bili-history` | `frontend` | off | `web-build-command: pnpm run generate`；`test-packages: ./config/... ./utils/... ./models/... ./database/...` |
+| diarum | `.` | `./cmd/diarum` | `diarum` | `ghcr.io/felix2yu/diarum` | `web` | off | `version-var: main.Version`（本仓库变量是大写） |
+| bili-history | `.` | `./cmd/bili-history` | `bili-history` | `ghcr.io/felix2yu/bili-history` | `web` | off | `web-build-command: pnpm run generate`；`test-packages: ./internal/config/... ./internal/utils/... ./internal/models/... ./internal/database/...` |
 | bili-dl | `.` | `.` | `bili-dl` | —（无 Dockerfile，删掉 image job） | — | off | — |
 | WebMonitor | `''`（后端是 Python） | — | — | —（自有 Docker 流程） | `frontend` | — | 只套用 `reusable-test.yml`：`go-dir: ''` 让 Go 步骤全部跳过；镜像仍由 `Dockerfile.slim` / `frontend/Dockerfile` 自己构建，它们的 Node 阶段用 `node -p "...packageManager.slice(5)"` 解析 pnpm 版本 |
 | qbhive | `.` | `./cmd/server` | `qbhive` | `ghcr.io/felix2yu/qbhive` | — | off | — |
