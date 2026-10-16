@@ -121,7 +121,7 @@ onlyBuiltDependencies:
 
 | 仓库 | 前端目录 | 产物落到 |
 |---|---|---|
-| shenshi | `web` | `web/dist` → `server/dist`（内嵌进二进制） |
+| shenshi | `web` | `web/dist` → `internal/web/dist`（内嵌进二进制；2026-10-16 随模块回根从 `server/dist` 迁来） |
 | qiansi | `web` | `web/dist` → 镜像 `/app/web/dist`（运行时读取，不 embed） |
 | mujian | `frontend` | `frontend/dist` → `backend/dist` |
 | huozhi | `frontend` | 同上 |

@@ -73,8 +73,8 @@ jobs:
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     with:
-      go-dir: server
-      test-packages: ./internal/...
+      go-dir: .
+      test-packages: ./...
 
   image:
     needs: test
@@ -83,7 +83,8 @@ jobs:
       packages: write
     uses: Felix2yu/.github/.github/workflows/reusable-image.yml@v1
     with:
-      go-dir: server
+      go-dir: .
+      main-package: ./cmd/shenshi
       binary-name: shenshi
       image-name: ghcr.io/felix2yu/shenshi
 
@@ -93,7 +94,8 @@ jobs:
       contents: write
     uses: Felix2yu/.github/.github/workflows/reusable-release.yml@v1
     with:
-      go-dir: server
+      go-dir: .
+      main-package: ./cmd/shenshi
       binary-name: shenshi
 ```
 
@@ -325,8 +327,8 @@ Node 同样拉平到一个版本：8 个前端仓库的仓库根 `.nvmrc` 现在
 
 | 仓库 | go-dir | main-package | binary-name | image-name | web-dir | cgo | 需额外设置 |
 |---|---|---|---|---|---|---|---|
-| feixi | `.` | `./cmd/feixi` | `feixi` | `ghcr.io/felix2yu/feixi` | `internal/web` | off | 无需 `frontend-stage-command`：go:embed 目录就是 `internal/web/dist`；`test-packages: ./...`（占位 dist 已提交，未构建前端也能编译） |
-| shenshi | `server` | `.` | `shenshi` | `ghcr.io/felix2yu/shenshi` | `web` | off | `frontend-stage-command` 拷 `web/dist` → `server/dist`（go:embed）；`test-packages: ./internal/...` |
+| feixi | `.` | `./cmd/feixi` | `feixi` | `ghcr.io/felix2yu/feixi` | `web` | off | `frontend-stage-command` 拷 `web/dist` → `internal/web/dist`（go:embed；npm 工程 2026-10-16 从 `internal/web` 迁至 `web/`，原「就地构建即 embed 位」的免 stage 写法随之失效） |
+| shenshi | `.` | `./cmd/shenshi` | `shenshi` | `ghcr.io/felix2yu/shenshi` | `web` | off | `frontend-stage-command` 拷 `web/dist` → `internal/web/dist`（go:embed，占位 `.gitkeep` 已提交）；`test-packages: ./...` |
 | guanfu | `.` | `./cmd/guanfu` | `guanfu` | `ghcr.io/felix2yu/guanfu` | `web` | off | `web-build-command: pnpm run check && pnpm run build`（SvelteKit 带类型）；`frontend-stage-command` 拷 `web/build` → `internal/web/dist`（go:embed，仓库里只有 `.gitkeep` 占位）；`test-packages: ./...` |
 | qiansi | `.` | `./cmd/server` | `qiansi` | `ghcr.io/felix2yu/qiansi` | `web` | off | `codecov-disable-search: true`；前端另打 `web-dist.zip`；TS 6/7 并存的 peer 规则写在 `web/pnpm-workspace.yaml` |
 | mujian | `backend` | `.` | `mujian` | `ghcr.io/felix2yu/mujian` | `frontend` | **glibc** | `test-cgo: '1'`；`frontend-stage-command` 拷 `frontend/dist` → `backend/dist` |
