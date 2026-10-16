@@ -58,6 +58,13 @@ updates:
       npm-major:
         patterns: ["*"]
         update-types: ["major"]
+    # typescript 的 major 不提 PR：本仓群的 Svelte/SvelteKit 工程要靠 typescript@~6 提供
+    # JS 编译器 API（@sveltejs/kit 的 svelte-kit sync、svelte-check、typescript-eslint 都
+    # require 它），把它换成 7 会让 CI 在 install/postinstall 阶段就崩。TS7 走
+    # @typescript/native 别名 + svelte-check --tsgo。理由与实测见 docs/dependabot.md
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # ── Docker 基础镜像 ─────────────────────────────────────────────────
   - package-ecosystem: "docker"
