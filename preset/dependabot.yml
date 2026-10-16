@@ -60,8 +60,10 @@ updates:
         update-types: ["major"]
     # typescript 的 major 不提 PR：本仓群的 Svelte/SvelteKit 工程要靠 typescript@~6 提供
     # JS 编译器 API（@sveltejs/kit 的 svelte-kit sync、svelte-check、typescript-eslint 都
-    # require 它），把它换成 7 会让 CI 在 install/postinstall 阶段就崩。TS7 走
-    # @typescript/native 别名 + svelte-check --tsgo。理由与实测见 docs/dependabot.md
+    # require 它），把它换成 7 会让 CI 在 install/postinstall 阶段就崩。
+    # 本仓群统一只走 svelte-check 的默认路径：不装 @typescript/native 别名、不用 --tsgo ——
+    # 实测 --tsgo 在 huozhi 会因为 #lib/* 解析不到而把类型程序搞成空的，照样输出 0 errors，
+    # 而换来的只是 0.4~1.6 秒。理由与实测见 docs/dependabot.md 第六节
     ignore:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
