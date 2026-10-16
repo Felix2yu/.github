@@ -31,8 +31,7 @@ WORKSPACE = ROOT.parent
 REPOS: dict[str, dict] = {
     "shenshi": dict(lang="go", web="web"),
     "guanfu": dict(lang="go", web="web"),
-    # 前端不在仓库根的 web/，而在 internal/web（//go:embed 的目录就在它下面）
-    "feixi": dict(lang="go", web="internal/web"),
+    "feixi": dict(lang="go", web="web"),
     "qiansi": dict(lang="go", web="web"),
     "mujian": dict(lang="go", web="frontend"),
     "huozhi": dict(lang="go", web="frontend"),
