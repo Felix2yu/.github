@@ -322,6 +322,7 @@ Node 同样拉平到一个版本：8 个前端仓库的仓库根 `.nvmrc` 现在
 |---|---|---|---|---|---|---|---|
 | feixi | `.` | `./cmd/feixi` | `feixi` | `ghcr.io/felix2yu/feixi` | `internal/web` | off | 无需 `frontend-stage-command`：go:embed 目录就是 `internal/web/dist`；`test-packages: ./...`（占位 dist 已提交，未构建前端也能编译） |
 | shenshi | `server` | `.` | `shenshi` | `ghcr.io/felix2yu/shenshi` | `web` | off | `frontend-stage-command` 拷 `web/dist` → `server/dist`（go:embed）；`test-packages: ./internal/...` |
+| guanfu | `.` | `./cmd/guanfu` | `guanfu` | `ghcr.io/felix2yu/guanfu` | `web` | off | `web-build-command: pnpm run check && pnpm run build`（SvelteKit 带类型）；`frontend-stage-command` 拷 `web/build` → `internal/web/dist`（go:embed，仓库里只有 `.gitkeep` 占位）；`test-packages: ./...` |
 | qiansi | `.` | `./cmd/server` | `qiansi` | `ghcr.io/felix2yu/qiansi` | `web` | off | `codecov-disable-search: true`；前端另打 `web-dist.zip`；TS 6/7 并存的 peer 规则写在 `web/pnpm-workspace.yaml` |
 | mujian | `backend` | `.` | `mujian` | `ghcr.io/felix2yu/mujian` | `frontend` | **glibc** | `test-cgo: '1'`；`frontend-stage-command` 拷 `frontend/dist` → `backend/dist` |
 | huozhi | `backend` | `./cmd/huozhi-server` | `huozhi-server` | `ghcr.io/felix2yu/huozhi` | `frontend` | off | `web-test-command: pnpm run test:coverage` + `frontend-coverage-file` |
@@ -427,11 +428,11 @@ python3 scripts/check-cpu-baseline.py        # CPU 指令集基线
    **不要为了迎合脚本改掉一个更好的实现**（这事儿发生过：有人为满足「换缓存名」检查，
    差点把按构建名单精确增删缓存的等价实现改坏）。
 
-### 现状快照（本次会话）
+### 现状快照（2026-10-16）
 
 | 报告 | 结论 |
 |---|---|
-| PWA 契约 | 登记 13 个 Web 应用，12 个全绿（mujian 的 SW 待修；飞檄的 SW 只 precache 壳） |
-| 容器镜像 | 16 个有 Dockerfile 的仓库，6 个全绿，10 个待修（多为以 root 运行 / 无探活） |
-| 仓库基线 | 17 个自研仓库全绿 |
-| CPU 指令集 | 10 个 `CGO_ENABLED=0` 仓库全绿（ymm 基线 3523~6965，全部 CPUID 门控）；2 个 CGO 仓走固定基线容器 |
+| PWA 契约 | 登记 13 个 Web 应用，12 个全绿（mujian 的 SW 待修；飞檄的 SW 只 precache 壳）。**观复 guanfu 尚未登记**，待单独排期 |
+| 容器镜像 | 19 个仓库，9 个全绿，10 个待修（多为以 root 运行 / 无探活） |
+| 仓库基线 | 20 个自研仓库全绿 |
+| CPU 指令集 | 12 个 `CGO_ENABLED=0` 仓库走纯 Go 基线（ymm 3523~6965，全部 CPUID 门控）；2 个 CGO 仓走固定基线容器 |

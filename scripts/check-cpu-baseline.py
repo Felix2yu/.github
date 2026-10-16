@@ -71,6 +71,10 @@ REPOS: dict[str, dict] = {
     # 本机无 objdump，4043/496 是沿用同组纯 Go 仓库的基线值，首次扫到产物时按实测校正。
     "feixi": dict(go_dir=".", main_pkg="./cmd/feixi", cgo="off", baseline=(4043, 496)),
     "shenshi": dict(go_dir="server", main_pkg=".", cgo="off", baseline=(4043, 496)),
+    # 观复同样走 modernc.org/sqlite（纯 Go 驱动），CGO_ENABLED=0。
+    # 3523/496 是 2026-10-16 实测 linux/amd64 产物的值（gobjdump，INTERP 无），
+    # 与 bili-dl 同值 —— 即只含 Go 标准库的门控型 AVX2/AVX-512 汇编。
+    "guanfu": dict(go_dir=".", main_pkg="./cmd/guanfu", cgo="off", baseline=(3523, 496)),
     "liuxia": dict(go_dir=".", main_pkg=".", cgo="off", baseline=(4043, 496)),
     "yuexi": dict(go_dir=".", main_pkg=".", cgo="off", baseline=(4043, 496)),
     "chaxin": dict(go_dir=".", main_pkg="./cmd/server", cgo="off", baseline=(4043, 496)),
