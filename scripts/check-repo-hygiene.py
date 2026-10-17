@@ -61,7 +61,10 @@ BUILD_PATHS = ["scripts/build.sh", "web/build.sh"]
 
 # 已登记例外：理由写在这里，脚本打印成「已登记」而不是沉默跳过。
 EXEMPT: dict[str, str] = {
-    "ntfy": "上游跟踪 fork：改 .gitignore 会在每次 merge 上游时变成永久冲突，按上游原样保留",
+    "ntfy": (
+        "上游跟踪 fork：完整卫生块不套用（每次 merge 上游都会冲突），"
+        "只加了最小必要规则 `.workbuddy/`；build.sh 与 codecov 按上游形态保留"
+    ),
 }
 
 
