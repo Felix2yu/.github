@@ -32,7 +32,8 @@ _baseline = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_baseline)
 REPOS: dict[str, dict] = _baseline.REPOS
 
-# AI Agent 工具落盘的目录名。目录级（带尾斜杠），`.trae` 与拼写错误的 `.trea` 都挡。
+# AI Agent 工具落盘的目录名（目录级，带尾斜杠）。Trae 的实名是 `.trae`；
+# `.trea` 只是防手滑拼错的兜底，真实磁盘上不存在。
 AGENT_DIRS = [
     ".workbuddy",
     ".trae",
