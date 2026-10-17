@@ -260,17 +260,23 @@ def check_health(cfg: dict, text: str, compose: str) -> tuple[bool, list[str]]:
 
 def check_context(repo: str, cfg: dict, lines: list[str]) -> tuple[bool, list[str]]:
     """装配式的前提：CI 产物要能进上下文。"""
+    problems = []
+    # .dockerignore 若是指向 .gitignore 的符号链接，两边的排除语义就绑在一起了：
+    # .gitignore 要排除 bin/（产物），.dockerignore 必须保留它（COPY 源）。
+    dot = WORKSPACE / repo / ".dockerignore"
+    if dot.is_symlink():
+        problems.append(
+            f".dockerignore 是符号链接（-> {dot.resolve().name}），与 .gitignore 共用排除清单；"
+            "两者语义相反（产物 vs COPY 源），必须拆成独立文件")
     pats = dockerignore_patterns(repo)
-    if not pats:
-        return True, []
-    srcs = copy_sources(last_stage_lines(lines))
-    hits = []
-    for s in srcs:
-        p = is_excluded(s, pats)
-        if p:
-            hits.append(f"COPY 源 `{s}` 被 .dockerignore 的 `{p}` 排除")
-    if hits:
-        return False, hits
+    if pats:
+        srcs = copy_sources(last_stage_lines(lines))
+        for s in srcs:
+            p = is_excluded(s, pats)
+            if p:
+                problems.append(f"COPY 源 `{s}` 被 .dockerignore 的 `{p}` 排除")
+    if problems:
+        return False, problems
     return True, []
 
 
