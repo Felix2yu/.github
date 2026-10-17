@@ -198,6 +198,11 @@ Go 布局 根+cmd+internal×8 / server×2 / backend×3 / 平铺×4 / 上游×1�
    抄 guanfu）+ `internal/web/dist/.gitkeep`（被 .gitignore 挡住则 `git add -f`）；
    main.go 删 embed import 与指令，`fs.Sub(embedded,"dist")` → `web.FS()`。
    坑：`all:` 前缀不能丢（`_app/` 类目录会被静默漏掉）。
+   **新包必须自带测试**（`internal/web/embed_test.go`）：这个包是迁移凭空造出来的，
+   原先内嵌逻辑写在 `main.go` 里本来就不在被覆盖的包内，一旦独立成包，
+   codecov/patch（target 80%）必然判新增行未覆盖而打红 PR。
+   范式：断言 `HasBuild()` 与 `FS()` 内容自洽（占位态 / 构建态都要成立）+ `FS()` 可遍历；
+   Go 模板型（liuxia 系）则断言 `StaticFS` 非空、关键模板可读、`SWVersion` 形态。
 4. **前端三件套**：package.json / pnpm-lock.yaml / pnpm-workspace.yaml / 框架配置 /
    src / public 一起 mv；`.nvmrc` 留根不动；node_modules、dist、build、.svelte-kit、
    .output 不迁。坑：**lockfile 必须与 package.json 同级**，分居两地 CI
