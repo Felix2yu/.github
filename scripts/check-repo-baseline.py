@@ -33,7 +33,7 @@ REPOS: dict[str, dict] = {
     "guanfu": dict(lang="go", web="web"),
     "feixi": dict(lang="go", web="web"),
     "qiansi": dict(lang="go", web="web"),
-    "mujian": dict(lang="go", web="frontend"),
+    "mujian": dict(lang="go", web="web"),
     "huozhi": dict(lang="go", web="web"),
     "qingye": dict(lang="go", web="web"),
     "diarum": dict(lang="go", web="web"),
@@ -55,9 +55,10 @@ REPOS: dict[str, dict] = {
         lang="python",
         ci_exempt="纯 Python 仓库，reusable-test 的 go/web 两个入口都不适用，已自建 ci.yml 跑 pytest",
     ),
+    # whoami 不是 fork（历史上被误登记为 fork=True，已按用户确认改为常规自研仓）
+    "whoami": dict(lang="go"),
     # fork / 第三方：README 与 LICENSE 沿用上游，不参与本仓群契约
     "healthchecks": dict(lang="python", fork=True),
-    "whoami": dict(lang="go", fork=True),
     "GoldPrice": dict(lang="python", fork=True),
     "ntfyx": dict(lang="go", fork=True),
 }

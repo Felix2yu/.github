@@ -122,24 +122,25 @@ dev/test/docker/clean 便捷目标。根目录的 `build.sh`（tuqie、whoami、
 
 ---
 
-## 三、差异对比矩阵（2026-10-16 快照）
+## 三、迁移前后对照（2026-10-17，第 0–4 批已落地）
 
-◆=需迁移（重/中/轻），✓=已符合，✖=fork 豁免（不参与本契约）。
+迁移已完成。下表是**当前**的真实布局；迁移前的形态差异记在表下的「原始分歧」一段，
+留作回溯用。◆=仍待迁移，✓=已合规/已迁移，✖=fork 豁免（不参与本契约）。
 
-| 项目 | Go 模块/入口 | 前端·形态 | Docker·entrypoint | 构建入口 | 差距 |
-|---|---|---|---|---|---|
-| shenshi | `server/` + `server/main.go` | web/·Vite | 根全套；根 `docker-entrypoint.sh` | scripts/build.sh | ◆重：模块回根+cmd 化+embed 外移+entrypoint 移位+data 合并 |
-| feixi | 根 + `cmd/feixi` | `internal/web`·Vite（npm 与 Go embed 包混居） | 根全套；根 `docker-entrypoint.sh` | Makefile | ◆中：npm 工程→web/；entrypoint→scripts/；CI 增 stage command |
-| qingye | `server/` + `server/main.go` | web/·SvelteKit | 根全套；直起 | Makefile（web 段用 **npm**，违反 pnpm 契约） | ◆中：模块回根+cmd 化；npm→pnpm 顺手修 |
-| mujian | `backend/` + `backend/main.go` | `frontend/`·SvelteKit | 根全套；CMD `su` 降权 | Makefile + dev.sh | ◆重：backend 回根+cmd 化+frontend→web；根 package.json 登记 |
-| huozhi | `backend/` + `backend/cmd/huozhi-server` | `frontend/`·SvelteKit | 根 Dockerfile + **compose(.yaml)**；**无 .dockerignore**；`scripts/entrypoint.sh` | 无 | ◆中：backend 回根+frontend→web；.yaml→.yml；补 .dockerignore；entrypoint 改名 |
-| bili-history | `backend/` + `backend/cmd` | `frontend/`·Nuxt（generate→.output/public） | 根全套；**无 .dockerignore**；根 `entrypoint.sh` | 无 | ◆中：backend 回根+frontend→web；entrypoint→scripts/；补 .dockerignore |
-| diarum | 根平铺 `main.go` | `site/`·SvelteKit | 根 Dockerfile；**无 compose**；根 `entrypoint.sh` | Makefile | ◆中：site→web；平铺→cmd/diarum/；entrypoint→scripts/ |
-| zhichang | 根 + `cmd/zhichangd` | web/·SvelteKit（web/embed.go 变体） | 根 Dockerfile；**compose+entrypoint 在 deploy/** | Makefile | ◆中：deploy/ 回收根；check-docker.py REPOS 同步改 |
-| liuxia | 根平铺 | 无（Go 模板） | 根全套；**compose(.yaml)**；根 `entrypoint.sh` | 无 | ◆轻：.yaml→.yml；entrypoint→scripts/ |
-| qbhive | 根 + `cmd/server` | web/static·纯静态 | 根 Dockerfile+compose；**缺 .dockerignore** | 无 | ◆轻：补 .dockerignore；其余 ✓ |
-| tuqie | 根 + `cmd/tuqie` | web/·Vite（web/embed.go 变体） | 根全套；直起 | 根 `build.sh` | ◆轻：build.sh→scripts/ |
-| whoami | 根 + `cmd/whoami` | 无（internal/web Go 模板） | 根 Dockerfile+.dockerignore（装配式已合规）；无 compose | 根 `build.sh` | ◆轻：build.sh→scripts/；补 LICENSE+dependabot；登记进两个 check 脚本；布局/Dockerfile 已合规 |
+| 项目 | Go 模块/入口 | 前端·形态 | Docker·entrypoint | 状态 |
+|---|---|---|---|---|
+| shenshi | 根 + `cmd/shenshi` | web/·Vite（embed 位 `internal/web/dist`） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 1 批 |
+| feixi | 根 + `cmd/feixi` | web/·Vite（embed 位 `internal/web/dist`） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 1 批 |
+| qingye | 根 + `cmd/qingye` | web/·SvelteKit（根 `dist/` 暂存，运行时 `WEB_DIR`） | 根全套；直起 | ✓ 第 3 批 |
+| mujian | 根 + `cmd/mujian` | web/·SvelteKit（embed 位 `internal/web/dist` + 根 `dist/` 暂存） | 根全套；CMD `su` 降权 | ✓ 第 3 批 |
+| huozhi | 根 + `cmd/huozhi-server` | web/·SvelteKit | 根全套；compose(.yml)；`scripts/docker-entrypoint.sh` | ✓ 第 2 批 |
+| bili-history | 根 + `cmd/bili-history` | web/·Nuxt（generate→`.output/public`） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 2 批 |
+| diarum | 根 + `cmd/diarum` | web/·SvelteKit（embed 位 `internal/static/build`，登记变体） | 根 Dockerfile；无 compose；`scripts/docker-entrypoint.sh` | ✓ 第 2 批 |
+| zhichang | 根 + `cmd/zhichangd` | web/·SvelteKit（`web/embed.go` 变体） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 4 批 |
+| liuxia | 根 + `cmd/liuxia` | 无（Go 模板，内嵌在 `internal/web`） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 4 批 |
+| qbhive | 根 + `cmd/server` | `web/static`·纯静态 | 根 Dockerfile + compose | ✓ 第 4 批 |
+| tuqie | 根 + `cmd/tuqie` | web/·Vite（`web/embed.go` 变体） | 根全套；直起 | ◆ 待迁：根 `build.sh`→`scripts/` |
+| whoami | 根 + `cmd/whoami` | 无（`internal/web` Go 模板） | 根 Dockerfile + .dockerignore；无 compose | ✓ 第 4 批 |
 | qiansi | 根 + `cmd/server` | web/·Vite | 根全套；distroless 无脚本 | 无 | ✓（根 dist/ 暂存是标准一部分） |
 | guanfu | 根 + `cmd/guanfu` | web/·SvelteKit | 根全套；`scripts/docker-entrypoint.sh` | scripts/build.sh | ✓（**仓内参照实现**） |
 | chaxin | 根 + `cmd/server` | web/·纯静态（build.sh 手搓） | 根全套；直起 | Makefile + web/build.sh | ✓（npm=False 已登记） |
@@ -150,10 +151,20 @@ dev/test/docker/clean 便捷目标。根目录的 `build.sh`（tuqie、whoami、
 | ntfy | 上游平铺 | web/·上游 | 根（上游 Dockerfile） | 上游 Makefile | ✖ fork 豁免 |
 | GoldPrice / ntfyx | Swift | 无 | 无 | 根 build.sh / build-app.sh | ✖ fork 豁免 |
 
-**统计口径**：前端命名 web×9 / frontend×4 / site×1 / internal/web×1 / 无×7；Go 布局
-根+cmd+internal×8 / server×2 / backend×3 / 平铺×4 / 上游×1；compose .yml×15 / .yaml×2；
-entrypoint 五种位置并存；缺 .dockerignore×4（qbhive、huozhi、bili-history、
-docker-db-auto-backup）。
+**当前统计**：前端命名 web×14 / frontend×1（WebMonitor，待其批次）/ 无×7；
+Go 布局 根+cmd+internal×15 / 平铺×3（yuexi、bili-dl、docker-db-auto-backup）/
+Python backend×1 / 上游×1；compose 后缀 **.yaml 已清零**；entrypoint 已全部归到
+`scripts/docker-entrypoint.sh`（或直起、或不需要）；缺 .dockerignore 仅剩 bili-dl
+（CLI 型、无 Dockerfile，不适用）。
+
+**原始分歧（迁移前）**：前端命名 web×9 / frontend×4 / site×1 / internal/web×1 / 无×7；
+Go 布局 根+cmd+internal×8 / server×2 / backend×3 / 平铺×4 / 上游×1；compose .yml×15 /
+.yaml×2；entrypoint 五种位置并存；缺 .dockerignore×4。
+
+> **仍存的不一致**：`yuexi` 是根平铺（`main.go` 在根、内部包在 `internal/`）且登记为 ✓，
+> 而同样「根平铺 + Go 模板」的 liuxia 在第 4 批已 cmd 化 —— 两者形态现在不一致。
+> 按本文第 1 节「cmd/ 为必需」与第 5 节人工清单「main 在 cmd/<app>/」，yuexi 实际未达标，
+> 待单独排期（另：`docker-db-auto-backup` 的根全平铺亦未 cmd 化，CLI 型暂按可接受处理）。
 
 ### 迁移批次路线图
 
@@ -162,8 +173,9 @@ docker-db-auto-backup）。
 | 第 0 批 | .github | 本文；frontend.md 第四节 supersede；repo-baseline.md fork 名单去 whoami；README 契约表/参数表/dependabot.md 同步 |
 | 第 1 批（试点） | feixi、shenshi | 覆盖全部迁移机理；CI 绿后复盘 SOP |
 | 第 2 批 | diarum、huozhi、bili-history | site→web+cmd 化；backend/frontend 双迁；.yaml→.yml；补 .dockerignore；entrypoint→scripts/ |
-| 第 3 批 | mujian、qingye | mujian 双迁+CGO+根 package.json 登记+dev.sh；qingye server→根+cmd 化+Makefile npm→pnpm |
-| 第 4 批 | zhichang、qbhive、liuxia、whoami | deploy/ 回收；补 .dockerignore；compose 改名+entrypoint 移位；whoami 轻量收尾 |
+| 第 3 批 ✓ 2026-10-17 | mujian、qingye | mujian 双迁+CGO+根 package.json 登记+dev.sh；qingye server→根+cmd 化+Makefile npm→pnpm。另：qingye 是第二个必须改 import 的仓库（包平铺在 `server/` 而非 `server/internal/`，67 处） |
+| 第 4 批 ✓ 2026-10-17 | zhichang、qbhive、liuxia、whoami | deploy/ 回收；补 .dockerignore；compose 改名+entrypoint 移位；whoami 轻量收尾。liuxia 是本批唯一需 cmd 化的根平铺仓；whoami 曾被误登记为 fork，已更正 |
+| 剩余 | tuqie、yuexi | tuqie 的根 `build.sh`→`scripts/`；yuexi 根平铺未 cmd 化（见上「仍存的不一致」） |
 | 豁免 | ntfy、healthchecks、GoldPrice、ntfyx | fork/上游跟踪，不动 |
 | 明确不做 | 全部 | module path 统一改名（独立后续 PR，按仓库逐个）；web/embed.go 变体回改；新增 check 门禁（规范稳定后评估） |
 

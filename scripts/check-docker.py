@@ -56,7 +56,9 @@ REPOS: dict[str, dict] = {
                                   root_exempt="需读宿主任意卷做备份 + 访问 docker.sock，降权后无法工作"),
     # ntfy 的 Dockerfile 来自上游，Dockerfile-build 是构建期镜像。
     "ntfy": dict(df=["Dockerfile"], compose="docker-compose.yml"),
-    "zhichang": dict(df=["Dockerfile"], compose="deploy/docker-compose.yml"),
+    "zhichang": dict(df=["Dockerfile"], compose="docker-compose.yml"),
+    # whoami 无 compose：单容器部署，装配式 Dockerfile 直起，属已登记变体
+    "whoami": dict(df=["Dockerfile"], compose=None),
 }
 REPOS.pop("yuexi-extra", None)  # 保持配置表干净：没有 Dockerfile 的仓库不登记
 

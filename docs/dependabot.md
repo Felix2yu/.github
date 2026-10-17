@@ -26,7 +26,7 @@
 | 处 | 改成 |
 |---|---|
 | `gomod` 段 | 后端是 Python 换成 `pip`；纯前端删掉 |
-| `npm` 段的 `directory` | 真实前端目录，**统一目标为 `/web`**（迁移批次见 [project-structure.md](project-structure.md) 第三节）。本仓群当前：`/web`（shenshi/qiansi/qingye/ntfy/feixi/diarum/huozhi/bili-history）、`/frontend`（mujian/WebMonitor） |
+| `npm` 段的 `directory` | 真实前端目录，**统一目标为 `/web`**（迁移批次见 [project-structure.md](project-structure.md) 第三节）。本仓群当前：`/web`（shenshi/qiansi/qingye/ntfy/feixi/diarum/huozhi/bili-history/mujian）、`/frontend`（WebMonitor，待其批次） |
 | `docker` 段 | 没有 Dockerfile 的删掉 |
 
 **`github-actions` 段一律保留。** 它管的是 `ci.yml` 里 `actions/checkout` 之类第三方
