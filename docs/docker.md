@@ -46,6 +46,19 @@ CopyIgnoredFile: attempted to copy "bin/app" but the file is excluded
 > 它。不会因为 `.dockerignore` 里出现 `dist/` 就无条件报错——很多仓库排除 `dist/`
 > 是对的（前端在容器内重新构建），只有当 Dockerfile 真的要 `COPY dist` 时才算冲突。
 
+**`.dockerignore` 不许是 `.gitignore` 的符号链接**。`docker-db-auto-backup` 曾用
+`.dockerignore -> ./.gitignore` 让两边内容自动同步，看上去省事，但两者的语义恰好相反：
+
+| | 该排除什么 |
+|---|---|
+| `.gitignore` | `bin/`、`dist/` —— 构建产物不入库 |
+| `.dockerignore` | **不能**排除 `bin/`、`dist/` —— 那是 `COPY` 源 |
+
+给 `.gitignore` 补了一条 `/bin/`，镜像构建立刻报
+`failed to calculate checksum of ref ...: "/bin/db-auto-backup": not found`。
+链接删掉、改成独立文件即可。两个文件的读者不同（git vs docker daemon），
+**内容天然不该一致**，链接只是把两份清单压成一份的偷懒。
+
 ---
 
 ## 二、非 root 运行
