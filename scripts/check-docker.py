@@ -46,10 +46,9 @@ REPOS: dict[str, dict] = {
     "yuexi": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "tuqie": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "qbhive": dict(df=["Dockerfile"], compose="docker-compose.yml"),
-    # distroless/static 里既没有 shell 也没有 wget/curl，HEALTHCHECK 与 compose
-    # healthcheck 都无处执行；换基镜像只为探活不划算。靠 restart: unless-stopped 兜底。
-    "qiansi": dict(df=["Dockerfile"], compose="docker-compose.yml",
-                   health_exempt="distroless/static 无 shell 与 http 客户端，容器内无法执行探活命令"),
+    # 2026-10-17 从 distroless/static 切到 alpine，探活改回 Dockerfile HEALTHCHECK，
+    # 原先的 health_exempt 随之撤销（alpine 自带 wget）。
+    "qiansi": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "RSSRob": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "WebMonitor": dict(df=["Dockerfile.slim", "frontend/Dockerfile"], compose="docker-compose.yml"),
     "yuexi-extra": dict(df=[], compose=None),  # 占位，见下方清理

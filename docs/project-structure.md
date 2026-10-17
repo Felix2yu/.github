@@ -142,7 +142,7 @@ Makefile 只做薄封装并保留 dev/test/docker/clean 便捷目标。根目录
 | qbhive | 根 + `cmd/server` | `web/static`·纯静态 | 根 Dockerfile + compose | ✓ 第 4 批 |
 | tuqie | 根 + `cmd/tuqie` | web/·Vite（`web/embed.go` 变体） | 根全套；直起 | ✓（`scripts/build.sh`） |
 | whoami | 根 + `cmd/whoami` | 无（`internal/web` Go 模板） | 根 Dockerfile + .dockerignore；无 compose | ✓ 第 4 批 |
-| qiansi | 根 + `cmd/server` | web/·Vite | 根全套；distroless 无脚本 | 无 | ✓（根 dist/ 暂存是标准一部分） |
+| qiansi | 根 + `cmd/server` | web/·Vite | 根全套；alpine 直起（无 entrypoint） | 无 | ✓（根 dist/ 暂存是标准一部分） |
 | guanfu | 根 + `cmd/guanfu` | web/·SvelteKit | 根全套；`scripts/docker-entrypoint.sh` | scripts/build.sh | ✓（**仓内参照实现**） |
 | chaxin | 根 + `cmd/server` | web/·纯静态（build.sh 手搓） | 根全套；直起 | Makefile + web/build.sh | ✓（npm=False 已登记） |
 | yuexi | 根平铺 | 无（Go 模板+tailwind CLI） | 根全套；直起 | 无 | ✓ |

@@ -60,6 +60,33 @@
 `errcheck` 关掉 `check-type-assertions` 与 `check-blank`——`v, _ := m[k]` 这种
 有意忽略很常见，开着只会制造噪音。
 
+### `errcheck` 白名单的边界
+
+`exclude-functions` 里只放**错误确实无处安放**的类别，三类，各有理由：
+
+| 类别 | 例子 | 为什么不检查 |
+|---|---|---|
+| 写响应/流 | `(net/http.ResponseWriter).Write`、`(*json.Encoder).Encode`、`png.Encode`、`ExecuteTemplate` | 响应头一旦发出，失败只能断连，交给客户端重试；调用方没有第二次机会 |
+| defer 收尾 | `(io.Closer).Close`、`(*sql.Tx).Rollback`、`(*sql.Rows).Close` | 函数即将返回，错误只能丢弃或覆盖主错误 |
+| 恒成功 | `(*bytes.Buffer).Write`、`(*strings.Builder).WriteString` | 这些实现的 Write 恒返回 nil |
+
+另有两条是「判断成本高于收益」的：
+
+- `(*database/sql.Row).Scan` —— 单行查询的 `ErrNoRows` 由紧随其后的「没查到」分支处理，
+  逐处再判一次只会得到同样的结论。**多行的 `(*sql.Rows).Scan` 不在白名单**，类型不匹配
+  会静默读出脏数据，必须检查。
+- `fmt.Fprint*` / `fmt.Print*` —— 输出到终端，没有调用方可以接收错误。
+
+**业务方法一律不进去**：`store.UpsertRecord`、`repo.Create`、`os.MkdirAll`、
+`json.Unmarshal` 这些漏检就是真缺陷，该加 `if err := ...; err != nil` 就加。
+
+### 另外两条不放进基线的规则
+
+- `govet` 的 `inline`：报的是「这次调用可以被编译器内联」，是优化提示不是缺陷，
+  按它改只会让表达式更碎。已在 `govet.disable` 里关掉。
+- `misspell` 的 `eles`：elevation（海拔）在 GPX 处理里的既有缩写，同时是数据库列名，
+  改不了也不该改。已加进 `misspell.ignore-rules`。
+
 本地跑：
 
 ```bash
@@ -73,6 +100,16 @@ golangci-lint config verify             # 改配置后先验语法
 存量代码从来没 lint 过，直接把 `golangci-lint run` 设成阻断门禁，21 个仓会同时变红，
 PR 无法推进。当前定位是**本地可跑、逐步收敛**：先让配置就位，等各仓 `run` 归零后
 再在共享 workflow 里加一个 informational 的 lint job（与 Codecov 同样的处理思路）。
+
+归零进度（2026-10-17）：
+
+| 状态 | 仓库 |
+|---|---|
+| `0 issues` | bili-dl、guanfu、tuqie、whoami、shenshi、docker-db-auto-backup、qbhive、qiansi、feixi、zhichang、yuexi |
+| 待收敛 | ntfy、liuxia、chaxin、mujian、diarum、huozhi、bili-history、qingye |
+
+收敛方式固定：`golangci-lint fmt` 先吃掉格式化类，然后按仓库逐条修。**不加仓库级
+`exclude-rules` 把整类规则关掉**——那样只是把噪音挪到看不见的地方。
 
 ## 五、验证
 

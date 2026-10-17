@@ -70,7 +70,7 @@ CopyIgnoredFile: attempted to copy "bin/app" but the file is excluded
 
 | 方案 | 适用 | 做法 | 已有仓库 |
 |---|---|---|---|
-| A · distroless nonroot | 无 shell 需求、不写数据卷 | `FROM gcr.io/distroless/static:nonroot`（uid 65532） | qiansi（待切换） |
+| A · distroless nonroot | 无 shell 需求、不写数据卷 | `FROM gcr.io/distroless/static:nonroot`（uid 65532） | 暂无（qiansi 2026-10-17 从 distroless 切到 alpine，见下方说明） |
 | B · 静态 `USER` | 镜像内有固定数据目录，宿主无需对齐 | Dockerfile 里 `RUN adduser` + `USER <name>` | RSSRob / WebMonitor / qbhive / tuqie |
 | C · `su-exec` + PUID/PGID | **绑定挂载了宿主目录** | 非 root 用户 + 入口脚本按 PUID/PGID 改 uid 并 `chown` 数据目录 | shenshi / liuxia / diarum / mujian / bili-history |
 
@@ -186,10 +186,17 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 1. 镜像内塞一个健康检查二进制（多一层构建，极少值得）；
 2. **登记例外**，靠 `restart: unless-stopped` 兜底，并保证应用自身有外部可观测的
-   `/healthz`（qiansi 属这一类：distroless + 无探活工具，端点留给外部监控用）。
+   `/healthz`（端点留给外部监控用）。
 
 非 distroless 的 alpine 镜像没这个问题，`wget` 自带，探活写在 Dockerfile 或 compose
 都行。判断口径只有一条：**容器里有没有一个能发 HTTP 请求的可执行文件**。
+
+**qiansi 的取舍**（2026-10-17）：它原本是唯一一个走方案 A 的仓库，但 distroless
+带来两个代价——探活只能登记例外、镜像里没有任何调试手段（进不去、抓不到网络栈）。
+改成 `alpine:3.24` 后 `HEALTHCHECK` 打 `/api/v1/health` 就能用，同时补上 `tzdata`
+（它按 `time.Local` 解析自然日，缺时区库会静默退化成 UTC）。**运行身份不变，仍是 root**：
+数据卷是绑定挂载 `./data`，降权需要 PUID/PGID 入口脚本配套迁移属主，单独一轮做。
+
 
 ---
 

@@ -150,7 +150,47 @@ CI 侧用 `web-build-command: pnpm run check && pnpm run build`（qingye 就是�
 
 ---
 
-## 六、自检
+## 六、lint 与格式化
+
+每个前端工程都要有 `eslint.config.js`（flat config）与 `prettier.config.js`，
+`package.json` 里两个脚本：
+
+```json
+"lint": "prettier --check . && eslint .",
+"format": "prettier --write ."
+```
+
+`lint` 放 `prettier --check` 在前面：格式不一致直接失败，不用等 eslint 跑完。
+
+### 规则基线
+
+`js.configs.recommended` + `ts.configs.recommended` + 框架推荐集（`eslint-plugin-svelte`
+或 `eslint-plugin-react-hooks`）全开，`eslint-config-prettier` 收尾关掉与格式化冲突的规则。
+
+**只有两类存量风格规则降为 `warn`**，其余一律 `error`：
+
+| 规则 | 为什么放宽 |
+|---|---|
+| `@typescript-eslint/no-explicit-any` | 存量里成片的 `API.get<any>` 与 echarts 配置对象，一次性改造等于重写前端 |
+| `svelte/prefer-svelte-reactivity` | `URLSearchParams` / `Map` / `Set` 与响应式无关的场合占多数，逐处判定成本高于收益 |
+
+正确性规则（`each` 块的 key、未使用变量、空块、`no-undef`）**必须真修**，不许降级——
+`{#each}` 缺 key 会让 Svelte 在列表增删时复用错 DOM 节点，这是可观测的 bug。
+
+### 缩进与 `.editorconfig` 对齐
+
+`prettier.config.js` 用 `useTabs: false, tabWidth: 2`，与 `.editorconfig` 的
+「TS/Svelte/CSS 统一 2 空格」保持一致。`huozhi` 是唯一的历史例外（`useTabs: true`），
+改动它会产生全仓重排 diff，单独一轮处理。
+
+### 首次接入的 diff 会很大
+
+`prettier --write` 会重排全部源文件（引号、尾逗号、换行、Tailwind class 顺序）。
+这是机械改动，review 时看 `git diff -w` 或者直接看配置，别逐行读。
+
+---
+
+## 七、自检
 
 ```bash
 python3 scripts/check-repo-baseline.py          # 「前端三件套」列
