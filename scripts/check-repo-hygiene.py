@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -48,8 +49,8 @@ AGENT_DIRS = [
     ".windsurf",
     ".aider",
 ]
-# .gitignore 里必须出现的三条（其余按需）：最常用 + 最容易漏 + 曾误入库过
-REQUIRED_IGNORES = [".workbuddy/", ".trae/", ".qoder/"]
+# .gitignore 里必须出现的四条（其余按需）：最常用 + 最容易漏 + 曾误入库过
+REQUIRED_IGNORES = [".workbuddy/", ".trae/", ".qoder/", ".DS_Store"]
 # 不该被跟踪的构建/包管理产物
 TRACKED_ARTIFACT_PATTERNS = [
     ("coverage.out", "覆盖率产物，每次跑测试都变"),
@@ -62,6 +63,11 @@ BUILD_PATHS = ["scripts/build.sh", "web/build.sh"]
 # 格式基线（见 docs/code-style.md）：前两个全仓都要，第三个只 Go 仓要
 FORMAT_FILES = [".editorconfig", ".gitattributes"]
 GO_FORMAT_FILE = ".golangci.yml"
+# Makefile 必备目标（见 docs/makefile.md）。docker 可豁免（无 Dockerfile 的 CLI 仓）。
+MAKE_TARGETS = ["build", "dev", "test", "lint", "fmt", "docker", "clean"]
+MAKE_TARGETS_NO_DOCKER = [t for t in MAKE_TARGETS if t != "docker"]
+# 本就没有 docker 目标的仓库：没有 Dockerfile，发布走 Release 二进制
+NO_DOCKER = {"bili-dl"}
 
 # 已登记例外：理由写在这里，脚本打印成「已登记」而不是沉默跳过。
 EXEMPT: dict[str, str] = {
@@ -98,7 +104,15 @@ def check_ignore_block(repo: pathlib.Path) -> list[str]:
     if not gi.is_file():
         return ["缺 .gitignore"]
     text = gi.read_text(encoding="utf-8", errors="replace")
-    return [f"缺规则 {pat}" for pat in REQUIRED_IGNORES if pat not in text]
+    problems = [f"缺规则 {pat}" for pat in REQUIRED_IGNORES if pat not in text]
+    # 有 Makefile 且 BIN 指向 bin/ 的仓，没忽略的话构建一次就多出一堆未跟踪文件。
+    # 用 `BIN := bin/...` 这一行作探针：RSSRob 的 `$(VENV)/bin/python` 也会含 "bin/"，
+    # 直接搜子串会误判成构建产物。
+    mf = repo / "Makefile"
+    if mf.is_file() and re.search(r"(?m)^\s*BIN\s*:?=\s*bin/", mf.read_text(encoding="utf-8", errors="replace")) \
+            and not re.search(r"(?m)^/?bin/?$", text):
+        problems.append("缺规则 bin/（Makefile 的 build 产出 bin/<app>）")
+    return problems
 
 
 def check_artifacts(repo: pathlib.Path) -> list[str]:
@@ -142,6 +156,25 @@ def check_format_baseline(repo: pathlib.Path) -> list[str]:
     return problems
 
 
+def check_makefile(repo: pathlib.Path, name: str) -> list[str]:
+    """七个必备目标是否齐备（内容不比对，各仓命令本来就不同）。"""
+    mf = repo / "Makefile"
+    if not mf.is_file():
+        return ["缺 Makefile"]
+    text = mf.read_text(encoding="utf-8", errors="replace")
+    required = MAKE_TARGETS_NO_DOCKER if name in NO_DOCKER else MAKE_TARGETS
+    missing = []
+    for t in required:
+        # 目标可能写成 `build:` 或 `build: deps`，也可能出现在合并目标里 `a b:`
+        if not re.search(rf"(?m)^(?:[A-Za-z0-9_.%-]+\s+)*{re.escape(t)}\s*:", text):
+            missing.append(t)
+    if missing:
+        return [f"缺目标：{'、'.join(missing)}"]
+    if ".PHONY" not in text:
+        return ["缺 .PHONY（目标名撞上同名目录时会被当成已最新而跳过）"]
+    return []
+
+
 def main() -> int:
     args = [a for a in sys.argv[1:] if a != "--all"]
     show_all = "--all" in sys.argv
@@ -155,7 +188,7 @@ def main() -> int:
             print(f"未登记的仓库：{name}", file=sys.stderr)
             continue
         if name in EXEMPT:
-            rows.append((name, "登记", "登记", "登记", "登记", "登记"))
+            rows.append((name, "登记", "登记", "登记", "登记", "登记", "登记"))
             detail[name] = [f"[例外] {EXEMPT[name]}"]
             continue
         repo = WORKSPACE / name
@@ -166,6 +199,7 @@ def main() -> int:
         arts = check_artifacts(repo)
         applies, build = check_build_script(repo)
         fmt = check_format_baseline(repo)
+        make = check_makefile(repo, name)
 
         rows.append((
             name,
@@ -173,6 +207,7 @@ def main() -> int:
             "NG" if ignore else "OK",
             "NG" if arts else "OK",
             "NG" if fmt else "OK",
+            "NG" if make else "OK",
             ("NG" if build else "OK") if applies else "--",
         ))
         msgs = []
@@ -182,29 +217,31 @@ def main() -> int:
         msgs += [f"[ignore] {m}" for m in ignore]
         msgs += [f"[产物] 已被跟踪：{m}" for m in arts]
         msgs += [f"[格式] {m}（跑 scripts/sync-format-baseline.py 分发）" for m in fmt]
+        msgs += [f"[Makefile] {m}（契约见 docs/makefile.md）" for m in make]
         msgs += [f"[build] {m}" for m in build]
         if msgs:
             detail[name] = msgs
 
-    head = f"{'仓库':<24}{'Agent':<8}{'ignore':<10}{'产物':<8}{'格式':<8}{'build.sh':<10}"
-    print("=" * 84)
-    print("仓库卫生自检（契约见 docs/repo-baseline.md 第六节 / docs/build-script.md / docs/code-style.md）")
-    print("=" * 84)
+    head = f"{'仓库':<24}{'Agent':<8}{'ignore':<10}{'产物':<8}{'格式':<8}{'Make':<8}{'build.sh':<10}"
+    rule = "=" * 92
+    print(rule)
+    print("仓库卫生自检（契约见 docs/repo-baseline.md 第六节 / docs/build-script.md / docs/code-style.md / docs/makefile.md）")
+    print(rule)
     print(head)
-    print("-" * 84)
+    print("-" * 92)
     for r in rows:
-        print(f"{r[0]:<24}{r[1]:<8}{r[2]:<10}{r[3]:<8}{r[4]:<8}{r[5]:<10}")
+        print(f"{r[0]:<24}{r[1]:<8}{r[2]:<10}{r[3]:<8}{r[4]:<8}{r[5]:<8}{r[6]:<10}")
 
     if detail:
         print("\n明细")
-        print("-" * 84)
+        print("-" * 92)
         for name, msgs in detail.items():
             print(f"\n{name}")
             for m in msgs:
                 print(f"    - {m}")
 
     ng = sum(1 for r in rows if "NG" in r[1:])
-    print("-" * 84)
+    print("-" * 92)
     print(f"共 {len(rows)} 个仓库，{len(rows) - ng} 个全绿，{ng} 个待修。")
     print("fork / 第三方仓库默认跳过（--all 可见）。")
     return 0 if ng == 0 else 1

@@ -23,11 +23,13 @@
 | 忽略规则 | `.gitignore` | 覆盖 `node_modules`、`dist`/`build`、Go 产物 | 把依赖和产物提交进仓库 |
 | 忽略规则 | `.gitignore` 的 Agent 目录块 | 见[第六节](#六忽略规则ai-agent-生成目录) | 会话记忆与规则缓存混进版本库 |
 | 忽略规则 | 产物不入库 | 无 tracked `coverage.out`、`package-lock.json`、`yarn.lock` | 构建产物与 npm 残留污染 diff |
+| 忽略规则 | 系统垃圾文件 | `.gitignore` 含 `.DS_Store`；无 tracked `.DS_Store` / `Thumbs.db` | Finder 逛一圈就多一条假改动，还会把图标位置之类的二进制混进 diff |
 | 覆盖率 | `codecov.yml` | `project` 与 `patch` **都是** `informational: true` | 覆盖率几点波动就把无关 PR 判红，最后所有人集体无视红灯 |
 | 忽略规则 | `.dockerignore` | 不得排除 CI 产物（见 [docker.md](docker.md)） | `CopyIgnoredFile` |
 | 格式基线 | `.editorconfig` | 与 [templates/editorconfig](../templates/editorconfig) 逐字节相同 | 缩进与换行靠自觉，diff 里全是空白噪音 |
 | 格式基线 | `.gitattributes` | 与 [templates/gitattributes](../templates/gitattributes) 逐字节相同 | CRLF 进仓库：脚本报 `bad interpreter`、`go:embed` 哈希漂移 |
 | 格式基线 | `.golangci.yml` | 有 `go.mod` 的仓库才有（见 [code-style.md](code-style.md)） | Go 侧除 `go vet` 外没有任何静态检查 |
+| 命令入口 | `Makefile` | 七个必备目标 build / dev / test / lint / fmt / docker / clean（见 [makefile.md](makefile.md)） | 每个仓库一套方言，换个仓就得重读一遍怎么构建 |
 
 ---
 
@@ -110,13 +112,13 @@ workflow，以及有没有写 `@main`。
 
 ---
 
-## 六、忽略规则：AI Agent 生成目录
+## 六、忽略规则：AI Agent 目录与系统垃圾文件
 
 各家 AI 编程工具都会在仓库里落一个自己的目录（会话记忆、skills、规则缓存）。
 它们**不是项目内容**，混进版本库的后果是：别人的 clone 里出现一堆自己用不上的
 `.md`、每次 review diff 都要跳过它们、`git status` 长期噪音。
 
-统一在 `.gitignore` 末尾加这一段（**逐仓都要有，不靠全局 gitignore**）：
+统一在 `.gitignore` 末尾加这两段（**逐仓都要有，不靠全局 gitignore**）：
 
 ```gitignore
 # ---- AI Agent 生成目录（不进版本库，本地保留）----
@@ -132,9 +134,18 @@ workflow，以及有没有写 `@main`。
 .continue/
 .windsurf/
 .aider*
+
+# ---- 系统垃圾文件（macOS / Windows 都会生成）----
+.DS_Store
+Thumbs.db
+desktop.ini
 ```
 
-三个要点：
+`liuxia` 的根目录曾提交进一个 `.DS_Store`（`31c97ac`，与 `coverage.out` 同批误入库）——
+它 6KB、内容是 Finder 的图标坐标，每次打开访达都可能变。这类文件加 ignore 不够，
+**已经被跟踪的要 `git rm --cached` 摘掉**。
+
+四个要点：
 
 1. **已经入库的要摘除索引**，不是只加 ignore —— ignore 对已跟踪文件无效：
    `git rm -r --cached .workbuddy`（`--cached` 保留本地文件），然后单独提交。
@@ -142,6 +153,8 @@ workflow，以及有没有写 `@main`。
    拼错的兜底行，永不匹配时零成本；想精简可以删掉，判断依据是磁盘上的实名。
 3. **规则是目录级（带尾斜杠）**：`.claude/settings.json` 这类想共享的项目级配置，
    真要版本化就挪到 `docs/` 或仓库根具名文件，别指望「只忽略一部分子目录」。
+4. **系统垃圾文件不分平台全写**：仓库在 macOS 和 Windows 上都可能被 clone，
+   三行成本为零，漏一行就得在下一次 review 里发现一个二进制 diff。
 
 > 例外：`.cursorrules`、`AGENTS.md` 这类**单文件**约定通常是想共享的，
 > 不在本规则范围内。判断标准：这个文件是给我自己看的，还是给协作者看的。

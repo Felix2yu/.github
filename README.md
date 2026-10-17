@@ -24,6 +24,7 @@ Felix2yu/.github/
 │   ├── release.md             发布规范（版本注入 / tag / CHANGELOG）
 │   ├── build-script.md        构建脚本（build.sh 骨架 / 工具链解析 / 产物内嵌）
 │   ├── code-style.md          格式基线（editorconfig / gitattributes / golangci）
+│   ├── makefile.md            命令入口（七目标 build/dev/test/lint/fmt/docker/clean）
 │   └── cpu-baseline.md        CPU 指令集基线（CGO 编译环境 / AVX 门控 / 基线实测值）
 ├── templates/                 格式基线的唯一来源（各仓副本由 sync 脚本分发，禁手改）
 │   ├── editorconfig
@@ -420,6 +421,7 @@ PWA 之外还有七类东西同样是「跨仓库契约」——放进任何一�
 | 仓库基线 | [`docs/repo-baseline.md`](docs/repo-baseline.md) | `python3 scripts/check-repo-baseline.py` | 缺 LICENSE 别人不能用、缺 dependabot 依赖停更、缺 CI 无人验证分支 |
 | 仓库卫生 | [`docs/repo-baseline.md`](docs/repo-baseline.md) 第六节 | `python3 scripts/check-repo-hygiene.py` | AI Agent 目录与 `coverage.out` 混进版本库，review 被噪音淹没 |
 | 构建脚本 | [`docs/build-script.md`](docs/build-script.md) | `python3 scripts/check-repo-hygiene.py`（build.sh 列） | 每仓一套方言，换台机器或过三个月就得重读一遍 |
+| 命令入口 | [`docs/makefile.md`](docs/makefile.md) | `python3 scripts/check-repo-hygiene.py`（Make 列） | 同上一行：`make build` 在 A 仓能用、B 仓不存在 |
 | 格式基线 | [`docs/code-style.md`](docs/code-style.md) | `python3 scripts/check-repo-hygiene.py`（格式列）+ `scripts/sync-format-baseline.py --check` | 缩进与换行靠自觉；CRLF 进仓库后脚本报 `bad interpreter`、`go:embed` 哈希漂移；Go 侧一行 lint 都没有 |
 | 项目结构 | [`docs/project-structure.md`](docs/project-structure.md) | 人工清单（该文第五节） | 目录名分裂使 CI 输入、dependabot directory、REPOS 三处重复维护同一份事实 |
 | 依赖更新 | [`docs/dependabot.md`](docs/dependabot.md) | 同上「依赖更新」列 | 每周十几个 PR，最后没人看；CVE 半年无人知 |

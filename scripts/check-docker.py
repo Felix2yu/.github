@@ -46,14 +46,19 @@ REPOS: dict[str, dict] = {
     "yuexi": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "tuqie": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "qbhive": dict(df=["Dockerfile"], compose="docker-compose.yml"),
-    "qiansi": dict(df=["Dockerfile"], compose="docker-compose.yml"),
+    # distroless/static 里既没有 shell 也没有 wget/curl，HEALTHCHECK 与 compose
+    # healthcheck 都无处执行；换基镜像只为探活不划算。靠 restart: unless-stopped 兜底。
+    "qiansi": dict(df=["Dockerfile"], compose="docker-compose.yml",
+                   health_exempt="distroless/static 无 shell 与 http 客户端，容器内无法执行探活命令"),
     "RSSRob": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "WebMonitor": dict(df=["Dockerfile.slim", "frontend/Dockerfile"], compose="docker-compose.yml"),
     "yuexi-extra": dict(df=[], compose=None),  # 占位，见下方清理
     # 备份工具必须能读宿主任意容器卷，降权后读不到备份源 —— 这是它的功能前提，
     # 不是疏漏。同理它需要 docker.sock。
     "docker-db-auto-backup": dict(df=["Dockerfile"], compose="docker-compose.yml",
-                                  root_exempt="需读宿主任意卷做备份 + 访问 docker.sock，降权后无法工作"),
+                                  root_exempt="需读宿主任意卷做备份 + 访问 docker.sock，降权后无法工作",
+                                  health_exempt="调度型容器（按 SCHEDULE 触发备份，无常驻服务）；"
+                                                "compose 里的 tail -f /dev/null 是上游 dev 测试床，不是部署形态"),
     # ntfy 的 Dockerfile 来自上游，Dockerfile-build 是构建期镜像。
     "ntfy": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "zhichang": dict(df=["Dockerfile"], compose="docker-compose.yml"),

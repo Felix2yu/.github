@@ -167,9 +167,16 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 2. **`start-period` 不能省**。首次启动要建表、跑迁移，5 秒内起不来是常态；没有
    start-period 的话这几次失败会被计入 retries，容器还没热身就判死。
 
-**distroless 例外**：没有 shell，`HEALTHCHECK` 的 CMD 无处执行。这类镜像改由
-编排层探活——在 `docker-compose.yml` 里写 `healthcheck:`，口径一样
-（免鉴权端点 + start_period）。二者有一处即可，脚本二选一认可。
+**distroless 的真相**：`gcr.io/distroless/static` 里既没有 shell 也没有 `wget`/`curl`，
+`HEALTHCHECK` 的 CMD 无处执行 —— **改到 compose 里写 `healthcheck:` 同样执行不了**，
+因为编排层也必须在容器内跑命令。distroless 镜像想探活只有两条路：
+
+1. 镜像内塞一个健康检查二进制（多一层构建，极少值得）；
+2. **登记例外**，靠 `restart: unless-stopped` 兜底，并保证应用自身有外部可观测的
+   `/healthz`（qiansi 属这一类：distroless + 无探活工具，端点留给外部监控用）。
+
+非 distroless 的 alpine 镜像没这个问题，`wget` 自带，探活写在 Dockerfile 或 compose
+都行。判断口径只有一条：**容器里有没有一个能发 HTTP 请求的可执行文件**。
 
 ---
 
