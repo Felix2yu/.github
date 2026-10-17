@@ -25,6 +25,9 @@
 | 忽略规则 | 产物不入库 | 无 tracked `coverage.out`、`package-lock.json`、`yarn.lock` | 构建产物与 npm 残留污染 diff |
 | 覆盖率 | `codecov.yml` | `project` 与 `patch` **都是** `informational: true` | 覆盖率几点波动就把无关 PR 判红，最后所有人集体无视红灯 |
 | 忽略规则 | `.dockerignore` | 不得排除 CI 产物（见 [docker.md](docker.md)） | `CopyIgnoredFile` |
+| 格式基线 | `.editorconfig` | 与 [templates/editorconfig](../templates/editorconfig) 逐字节相同 | 缩进与换行靠自觉，diff 里全是空白噪音 |
+| 格式基线 | `.gitattributes` | 与 [templates/gitattributes](../templates/gitattributes) 逐字节相同 | CRLF 进仓库：脚本报 `bad interpreter`、`go:embed` 哈希漂移 |
+| 格式基线 | `.golangci.yml` | 有 `go.mod` 的仓库才有（见 [code-style.md](code-style.md)） | Go 侧除 `go vet` 外没有任何静态检查 |
 
 ---
 

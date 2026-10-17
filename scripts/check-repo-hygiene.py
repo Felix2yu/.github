@@ -59,6 +59,9 @@ TRACKED_ARTIFACT_PATTERNS = [
 ]
 # build.sh 的硬约定（见 docs/build-script.md 第二节）
 BUILD_PATHS = ["scripts/build.sh", "web/build.sh"]
+# 格式基线（见 docs/code-style.md）：前两个全仓都要，第三个只 Go 仓要
+FORMAT_FILES = [".editorconfig", ".gitattributes"]
+GO_FORMAT_FILE = ".golangci.yml"
 
 # 已登记例外：理由写在这里，脚本打印成「已登记」而不是沉默跳过。
 EXEMPT: dict[str, str] = {
@@ -131,6 +134,14 @@ def check_build_script(repo: pathlib.Path) -> tuple[str, list[str]]:
     return True, problems
 
 
+def check_format_baseline(repo: pathlib.Path) -> list[str]:
+    """三份格式基线文件是否就位（内容一致性交给 sync-format-baseline.py --check）。"""
+    problems = [f"缺 {name}" for name in FORMAT_FILES if not (repo / name).is_file()]
+    if (repo / "go.mod").is_file() and not (repo / GO_FORMAT_FILE).is_file():
+        problems.append(f"缺 {GO_FORMAT_FILE}（Go 仓）")
+    return problems
+
+
 def main() -> int:
     args = [a for a in sys.argv[1:] if a != "--all"]
     show_all = "--all" in sys.argv
@@ -144,7 +155,7 @@ def main() -> int:
             print(f"未登记的仓库：{name}", file=sys.stderr)
             continue
         if name in EXEMPT:
-            rows.append((name, "登记", "登记", "登记", "登记"))
+            rows.append((name, "登记", "登记", "登记", "登记", "登记"))
             detail[name] = [f"[例外] {EXEMPT[name]}"]
             continue
         repo = WORKSPACE / name
@@ -154,12 +165,14 @@ def main() -> int:
         ignore = check_ignore_block(repo)
         arts = check_artifacts(repo)
         applies, build = check_build_script(repo)
+        fmt = check_format_baseline(repo)
 
         rows.append((
             name,
             "NG" if agent else "OK",
             "NG" if ignore else "OK",
             "NG" if arts else "OK",
+            "NG" if fmt else "OK",
             ("NG" if build else "OK") if applies else "--",
         ))
         msgs = []
@@ -168,29 +181,30 @@ def main() -> int:
             msgs.append(f"[Agent] 另有 {len(agent) - 6} 个文件同样被跟踪")
         msgs += [f"[ignore] {m}" for m in ignore]
         msgs += [f"[产物] 已被跟踪：{m}" for m in arts]
+        msgs += [f"[格式] {m}（跑 scripts/sync-format-baseline.py 分发）" for m in fmt]
         msgs += [f"[build] {m}" for m in build]
         if msgs:
             detail[name] = msgs
 
-    head = f"{'仓库':<24}{'Agent':<8}{'ignore':<10}{'产物':<8}{'build.sh':<10}"
-    print("=" * 76)
-    print("仓库卫生自检（契约见 docs/repo-baseline.md 第六节 / docs/build-script.md）")
-    print("=" * 76)
+    head = f"{'仓库':<24}{'Agent':<8}{'ignore':<10}{'产物':<8}{'格式':<8}{'build.sh':<10}"
+    print("=" * 84)
+    print("仓库卫生自检（契约见 docs/repo-baseline.md 第六节 / docs/build-script.md / docs/code-style.md）")
+    print("=" * 84)
     print(head)
-    print("-" * 76)
+    print("-" * 84)
     for r in rows:
-        print(f"{r[0]:<24}{r[1]:<8}{r[2]:<10}{r[3]:<8}{r[4]:<10}")
+        print(f"{r[0]:<24}{r[1]:<8}{r[2]:<10}{r[3]:<8}{r[4]:<8}{r[5]:<10}")
 
     if detail:
         print("\n明细")
-        print("-" * 76)
+        print("-" * 84)
         for name, msgs in detail.items():
             print(f"\n{name}")
             for m in msgs:
                 print(f"    - {m}")
 
     ng = sum(1 for r in rows if "NG" in r[1:])
-    print("-" * 76)
+    print("-" * 84)
     print(f"共 {len(rows)} 个仓库，{len(rows) - ng} 个全绿，{ng} 个待修。")
     print("fork / 第三方仓库默认跳过（--all 可见）。")
     return 0 if ng == 0 else 1

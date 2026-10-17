@@ -22,7 +22,13 @@ Felix2yu/.github/
 │   ├── frontend.md            前端工具链契约（Node / pnpm / 产物位置）
 │   ├── project-structure.md   项目结构（目录树 / 职责 / 差异矩阵 / 迁移 SOP）
 │   ├── release.md             发布规范（版本注入 / tag / CHANGELOG）
+│   ├── build-script.md        构建脚本（build.sh 骨架 / 工具链解析 / 产物内嵌）
+│   ├── code-style.md          格式基线（editorconfig / gitattributes / golangci）
 │   └── cpu-baseline.md        CPU 指令集基线（CGO 编译环境 / AVX 门控 / 基线实测值）
+├── templates/                 格式基线的唯一来源（各仓副本由 sync 脚本分发，禁手改）
+│   ├── editorconfig
+│   ├── gitattributes
+│   └── golangci.yml
 ├── preset/
 │   └── dependabot.yml         组织统一的依赖更新配置模板（整份覆盖，别手改副本）
 ├── pwa-preset/                PWA 预设：图标生成器、head 片段、manifest / SW 模板
@@ -32,6 +38,8 @@ Felix2yu/.github/
     ├── check-pwa.py               PWA 契约自检（本地跑）
     ├── check-docker.py            容器镜像自检（本地跑）
     ├── check-repo-baseline.py     仓库基线自检（本地跑）
+    ├── check-repo-hygiene.py      仓库卫生自检（Agent 目录 / 产物 / build.sh / 格式）
+    ├── sync-format-baseline.py    把 templates/ 分发到各仓（--check 只比对）
     └── check-cpu-baseline.py      CPU 指令集自检（本地跑；产物扫描需 objdump）
 ```
 
@@ -412,6 +420,7 @@ PWA 之外还有七类东西同样是「跨仓库契约」——放进任何一�
 | 仓库基线 | [`docs/repo-baseline.md`](docs/repo-baseline.md) | `python3 scripts/check-repo-baseline.py` | 缺 LICENSE 别人不能用、缺 dependabot 依赖停更、缺 CI 无人验证分支 |
 | 仓库卫生 | [`docs/repo-baseline.md`](docs/repo-baseline.md) 第六节 | `python3 scripts/check-repo-hygiene.py` | AI Agent 目录与 `coverage.out` 混进版本库，review 被噪音淹没 |
 | 构建脚本 | [`docs/build-script.md`](docs/build-script.md) | `python3 scripts/check-repo-hygiene.py`（build.sh 列） | 每仓一套方言，换台机器或过三个月就得重读一遍 |
+| 格式基线 | [`docs/code-style.md`](docs/code-style.md) | `python3 scripts/check-repo-hygiene.py`（格式列）+ `scripts/sync-format-baseline.py --check` | 缩进与换行靠自觉；CRLF 进仓库后脚本报 `bad interpreter`、`go:embed` 哈希漂移；Go 侧一行 lint 都没有 |
 | 项目结构 | [`docs/project-structure.md`](docs/project-structure.md) | 人工清单（该文第五节） | 目录名分裂使 CI 输入、dependabot directory、REPOS 三处重复维护同一份事实 |
 | 依赖更新 | [`docs/dependabot.md`](docs/dependabot.md) | 同上「依赖更新」列 | 每周十几个 PR，最后没人看；CVE 半年无人知 |
 | 前端工具链 | [`docs/frontend.md`](docs/frontend.md) | 同上「前端三件套」列 | CI 猜 Node 版本；`overrides` 在 pnpm 下空转 |
