@@ -21,6 +21,9 @@
 | 前端三件套 | `packageManager` | `pnpm@<版本>`，写在**前端目录**的 `package.json` | 同上 |
 | 前端三件套 | `pnpm-lock.yaml` | 与 `package.json` 同级 | `--frozen-lockfile` 直接失败 |
 | 忽略规则 | `.gitignore` | 覆盖 `node_modules`、`dist`/`build`、Go 产物 | 把依赖和产物提交进仓库 |
+| 忽略规则 | `.gitignore` 的 Agent 目录块 | 见[第六节](#六忽略规则ai-agent-生成目录) | 会话记忆与规则缓存混进版本库 |
+| 忽略规则 | 产物不入库 | 无 tracked `coverage.out`、`package-lock.json`、`yarn.lock` | 构建产物与 npm 残留污染 diff |
+| 覆盖率 | `codecov.yml` | `project` 与 `patch` **都是** `informational: true` | 覆盖率几点波动就把无关 PR 判红，最后所有人集体无视红灯 |
 | 忽略规则 | `.dockerignore` | 不得排除 CI 产物（见 [docker.md](docker.md)） | `CopyIgnoredFile` |
 
 ---
@@ -104,7 +107,45 @@ workflow，以及有没有写 `@main`。
 
 ---
 
-## 六、fork / 第三方仓库
+## 六、忽略规则：AI Agent 生成目录
+
+各家 AI 编程工具都会在仓库里落一个自己的目录（会话记忆、skills、规则缓存）。
+它们**不是项目内容**，混进版本库的后果是：别人的 clone 里出现一堆自己用不上的
+`.md`、每次 review diff 都要跳过它们、`git status` 长期噪音。
+
+统一在 `.gitignore` 末尾加这一段（**逐仓都要有，不靠全局 gitignore**）：
+
+```gitignore
+# ---- AI Agent 生成目录（不进版本库，本地保留）----
+.workbuddy/
+.trae/
+.trea/
+.qoder/
+.opencode/
+.cursor/
+.claude/
+.codex/
+.gemini/
+.continue/
+.windsurf/
+.aider*
+```
+
+三个要点：
+
+1. **已经入库的要摘除索引**，不是只加 ignore —— ignore 对已跟踪文件无效：
+   `git rm -r --cached .workbuddy`（`--cached` 保留本地文件），然后单独提交。
+2. **`.trae` 与 `.trea` 都写**：工具名是 Trae，实际落盘目录是 `.trae`，
+   但历史上有人手写成 `.trea`，两个都挡掉成本为零。
+3. **规则是目录级（带尾斜杠）**：`.claude/settings.json` 这类想共享的项目级配置，
+   真要版本化就挪到 `docs/` 或仓库根具名文件，别指望「只忽略一部分子目录」。
+
+> 例外：`.cursorrules`、`AGENTS.md` 这类**单文件**约定通常是想共享的，
+> 不在本规则范围内。判断标准：这个文件是给我自己看的，还是给协作者看的。
+
+---
+
+## 七、fork / 第三方仓库
 
 `healthchecks`、`GoldPrice`、`ntfyx` 这类以跟踪上游为主的仓库，
 README / LICENSE 沿用上游即可，不参与本仓群契约。脚本默认跳过它们（`--all` 可见）。
@@ -118,7 +159,7 @@ README / LICENSE 沿用上游即可，不参与本仓群契约。脚本默认跳
 
 ---
 
-## 七、自检
+## 八、自检
 
 ```bash
 python3 scripts/check-repo-baseline.py            # 全部自研仓库

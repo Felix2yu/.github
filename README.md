@@ -410,6 +410,8 @@ PWA 之外还有七类东西同样是「跨仓库契约」——放进任何一�
 |---|---|---|---|
 | 容器镜像 | [`docs/docker.md`](docs/docker.md) | `python3 scripts/check-docker.py` | 以 root 跑、`:latest` 漂移、`.dockerignore` 埋雷、`HEALTHCHECK` 探在鉴权端点上 |
 | 仓库基线 | [`docs/repo-baseline.md`](docs/repo-baseline.md) | `python3 scripts/check-repo-baseline.py` | 缺 LICENSE 别人不能用、缺 dependabot 依赖停更、缺 CI 无人验证分支 |
+| 仓库卫生 | [`docs/repo-baseline.md`](docs/repo-baseline.md) 第六节 | `python3 scripts/check-repo-hygiene.py` | AI Agent 目录与 `coverage.out` 混进版本库，review 被噪音淹没 |
+| 构建脚本 | [`docs/build-script.md`](docs/build-script.md) | `python3 scripts/check-repo-hygiene.py`（build.sh 列） | 每仓一套方言，换台机器或过三个月就得重读一遍 |
 | 项目结构 | [`docs/project-structure.md`](docs/project-structure.md) | 人工清单（该文第五节） | 目录名分裂使 CI 输入、dependabot directory、REPOS 三处重复维护同一份事实 |
 | 依赖更新 | [`docs/dependabot.md`](docs/dependabot.md) | 同上「依赖更新」列 | 每周十几个 PR，最后没人看；CVE 半年无人知 |
 | 前端工具链 | [`docs/frontend.md`](docs/frontend.md) | 同上「前端三件套」列 | CI 猜 Node 版本；`overrides` 在 pnpm 下空转 |
@@ -424,10 +426,11 @@ python3 scripts/check-reusable-inputs.py     # 调用方 input 契约（需 pip 
 python3 scripts/check-pwa.py                 # PWA 契约
 python3 scripts/check-docker.py              # 容器契约
 python3 scripts/check-repo-baseline.py       # 仓库基线
+python3 scripts/check-repo-hygiene.py        # 仓库卫生（Agent 目录 / 产物入库 / build.sh）
 python3 scripts/check-cpu-baseline.py        # CPU 指令集基线
 ```
 
-六个脚本都遵循两条约定：
+七个脚本都遵循两条约定：
 
 1. **零/可选依赖**。只有 `check-reusable-inputs.py` 需要 `pyyaml`（它要解析 YAML），
    `check-pwa.py` 的 Pillow 是可选的（缺了只跳过位图深度校验），

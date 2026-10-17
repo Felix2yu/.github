@@ -88,9 +88,10 @@ entrypoint 本身还有五种位置、两种命名。这些分裂**不会让任�
 ### Makefile 与 scripts/build.sh 的分工
 
 `scripts/build.sh` 是**唯一构建实现**（工具链定位 → 前端构建 → 产物入 embed 位 →
-`go build ./cmd/<app>`，范式见 guanfu 现有脚本）；Makefile 只做薄封装并保留
-dev/test/docker/clean 便捷目标。根目录的 `build.sh`（tuqie、whoami、GoldPrice）与
-`build-app.sh`（ntfyx）一律迁入 `scripts/` 或删除。
+`go build ./cmd/<app>`，骨架与五条硬约定见 [build-script.md](build-script.md)）；
+Makefile 只做薄封装并保留 dev/test/docker/clean 便捷目标。根目录的 `build.sh` 已全部
+归位 `scripts/`（tuqie、whoami 于 2026-10-17 完成），仅剩 fork 仓 `GoldPrice`（Swift）
+与 `ntfyx` 的 `build-app.sh` 按上游跟踪不动。
 
 ---
 
@@ -139,7 +140,7 @@ dev/test/docker/clean 便捷目标。根目录的 `build.sh`（tuqie、whoami、
 | zhichang | 根 + `cmd/zhichangd` | web/·SvelteKit（`web/embed.go` 变体） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 4 批 |
 | liuxia | 根 + `cmd/liuxia` | 无（Go 模板，内嵌在 `internal/web`） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 4 批 |
 | qbhive | 根 + `cmd/server` | `web/static`·纯静态 | 根 Dockerfile + compose | ✓ 第 4 批 |
-| tuqie | 根 + `cmd/tuqie` | web/·Vite（`web/embed.go` 变体） | 根全套；直起 | ◆ 待迁：根 `build.sh`→`scripts/` |
+| tuqie | 根 + `cmd/tuqie` | web/·Vite（`web/embed.go` 变体） | 根全套；直起 | ✓（`scripts/build.sh`） |
 | whoami | 根 + `cmd/whoami` | 无（`internal/web` Go 模板） | 根 Dockerfile + .dockerignore；无 compose | ✓ 第 4 批 |
 | qiansi | 根 + `cmd/server` | web/·Vite | 根全套；distroless 无脚本 | 无 | ✓（根 dist/ 暂存是标准一部分） |
 | guanfu | 根 + `cmd/guanfu` | web/·SvelteKit | 根全套；`scripts/docker-entrypoint.sh` | scripts/build.sh | ✓（**仓内参照实现**） |
@@ -175,7 +176,7 @@ Go 布局 根+cmd+internal×8 / server×2 / backend×3 / 平铺×4 / 上游×1�
 | 第 2 批 | diarum、huozhi、bili-history | site→web+cmd 化；backend/frontend 双迁；.yaml→.yml；补 .dockerignore；entrypoint→scripts/ |
 | 第 3 批 ✓ 2026-10-17 | mujian、qingye | mujian 双迁+CGO+根 package.json 登记+dev.sh；qingye server→根+cmd 化+Makefile npm→pnpm。另：qingye 是第二个必须改 import 的仓库（包平铺在 `server/` 而非 `server/internal/`，67 处） |
 | 第 4 批 ✓ 2026-10-17 | zhichang、qbhive、liuxia、whoami | deploy/ 回收；补 .dockerignore；compose 改名+entrypoint 移位；whoami 轻量收尾。liuxia 是本批唯一需 cmd 化的根平铺仓；whoami 曾被误登记为 fork，已更正 |
-| 剩余 | tuqie、yuexi | tuqie 的根 `build.sh`→`scripts/`；yuexi 根平铺未 cmd 化（见上「仍存的不一致」） |
+| 剩余 | yuexi | 根平铺未 cmd 化（见上「仍存的不一致」） |
 | 豁免 | ntfy、healthchecks、GoldPrice、ntfyx | fork/上游跟踪，不动 |
 | 明确不做 | 全部 | module path 统一改名（独立后续 PR，按仓库逐个）；web/embed.go 变体回改；新增 check 门禁（规范稳定后评估） |
 
