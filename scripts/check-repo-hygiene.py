@@ -59,6 +59,11 @@ TRACKED_ARTIFACT_PATTERNS = [
 # build.sh 的硬约定（见 docs/build-script.md 第二节）
 BUILD_PATHS = ["scripts/build.sh", "web/build.sh"]
 
+# 已登记例外：理由写在这里，脚本打印成「已登记」而不是沉默跳过。
+EXEMPT: dict[str, str] = {
+    "ntfy": "上游跟踪 fork：改 .gitignore 会在每次 merge 上游时变成永久冲突，按上游原样保留",
+}
+
 
 def git(repo: pathlib.Path, *args: str) -> str:
     try:
@@ -133,6 +138,10 @@ def main() -> int:
         cfg = REPOS.get(name)
         if cfg is None:
             print(f"未登记的仓库：{name}", file=sys.stderr)
+            continue
+        if name in EXEMPT:
+            rows.append((name, "登记", "登记", "登记", "登记"))
+            detail[name] = [f"[例外] {EXEMPT[name]}"]
             continue
         repo = WORKSPACE / name
         if not (repo / ".git").exists():
