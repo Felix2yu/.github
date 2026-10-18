@@ -236,9 +236,10 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 > **为什么不 pin digest**：基镜一变就主动触发重建，`pull: true` 会重新解析 tag，各应用
 > 不必手改 digest。这也是唯一豁免 digest 的 `FROM`（见 [docs/docker.md](docs/docker.md) 第三节）。
 >
-> **需要的 secret**：`DISPATCH_TOKEN` —— 一个对各应用仓库有 `Actions: write` 的 token
-> （fine-grained PAT，或 classic PAT 带 `repo` scope）。未配置时 `notify` 只告警不失败，
-> 靠各应用的每周 `schedule` 兜底。
+> **需要的 secret**：`DISPATCH_TOKEN` —— 一个对各应用仓库有写权限的 token：
+> fine-grained PAT 用 `Contents: Read and write`（Repository access 要覆盖 `notify`
+> 矩阵里的全部仓库），或 classic PAT 带 `repo` scope。未配置时 `notify` 只告警不失败，
+> 靠各应用的每周 `schedule` 兜底（基镜更新最多延迟 7 天才带进应用镜像）。
 
 ---
 

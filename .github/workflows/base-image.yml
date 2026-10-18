@@ -13,9 +13,11 @@ name: Base Images
 #   2. 再向每个应用仓库发 repository_dispatch(base-image-updated) 触发重建
 #      —— 你要求不 pin digest，靠这次重建 + build 的 pull:true 把新基镜带进去
 #
-# 需要的 secret：DISPATCH_TOKEN —— 一个对各应用仓库有 Actions: write 的 token
-# （fine-grained PAT，或 classic PAT 带 repo scope）。未配置时跳过即时触发并告警，
-# 各应用仍有自身的每周 schedule 兜底。
+# 需要的 secret：DISPATCH_TOKEN —— 一个对各应用仓库有写权限的 token：
+#   - fine-grained PAT：Repository permissions → Contents: Read and write
+#     （Repository access 要覆盖下方 notify 矩阵里的全部仓库）
+#   - 或 classic PAT：带 repo scope
+# 未配置时跳过即时触发并告警，各应用仍有自身的每周 schedule 兜底。
 
 on:
   push:

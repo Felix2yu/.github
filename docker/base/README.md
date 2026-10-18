@@ -61,7 +61,8 @@ docker run --rm --user 2000:2000 ghcr.io/felix2yu/base:alpine-3.24 id    # uid=2
 
 基镜推上之后，`base-image.yml` 的 `notify` job 会向矩阵里的每个应用仓库发
 `repository_dispatch(base-image-updated)`。需要仓库 secret `DISPATCH_TOKEN`
-（对目标仓库有 `Actions: write`）。应用侧 `ci.yml` 里要有：
+（对各目标仓库有写权限：fine-grained PAT 用 `Contents: Read and write`，或 classic PAT
+带 `repo` scope）。应用侧 `ci.yml` 里要有：
 
 ```yaml
 on:
