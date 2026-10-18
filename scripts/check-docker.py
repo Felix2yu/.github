@@ -220,6 +220,13 @@ def check_nonroot(repo: str, cfg: dict, lines: list[str], text: str,
         if re.match(r"^\s*FROM\s+\S*distroless\S*nonroot", line, re.I):
             return True, ["非 root：distroless nonroot 变体（uid 65532）"]
 
+    # A2: 公共运行时基镜。降权入口脚本（PUID/PGID + su-exec/gosu）随基镜一起来，
+    #     Dockerfile 里不再出现 su-exec / USER / gosu，检测必须认得这一形态，
+    #     否则会把「已用公共基镜」的仓库全部误报成「以 root 运行」。
+    for line in runtime:
+        if re.match(r"^\s*FROM\s+\S*ghcr\.io/felix2yu/base[:@]", line, re.I):
+            return True, ["非 root：公共基镜 ghcr.io/felix2yu/base（内置 PUID/PGID 降权入口）"]
+
     # B: 静态 USER
     m = re.search(r"^\s*USER\s+(\S+)", runtime_txt, re.M | re.I)
     if m:
@@ -281,6 +288,9 @@ def check_context(repo: str, cfg: dict, lines: list[str]) -> tuple[bool, list[st
 
 def check_tz(text: str) -> tuple[bool, list[str]]:
     """软检查：tzdata 缺失只在容器里暴露，给提示但不判失败。"""
+    # 公共基镜自带 tzdata 与 ENV TZ，应用 Dockerfile 里自然看不到这两样，不算缺失。
+    if re.search(r"^FROM\s+\S*ghcr\.io/felix2yu/base[:@]", text, re.M | re.I):
+        return True, []
     has_tzdata = bool(re.search(r"tzdata|tzdata-env", text, re.I))
     has_tz = bool(re.search(r"ENV\s+.*\bTZ=", text))
     if has_tzdata and has_tz:
