@@ -45,7 +45,8 @@ entrypoint 本身还有五种位置、两种命名。这些分裂**不会让任�
 ├── static/ + templates/       # [条件] Go 模板型前端（无 Node 链），随 embed 包走
 ├── scripts/
 │   ├── build.sh               # [推荐] 唯一构建实现（工具链定位+前端+内嵌+go build）
-│   ├── docker-entrypoint.sh   # [条件] 需 PUID/PGID 降权时（docker.md 方案 C）
+│   ├── docker-entrypoint.sh   # [罕见] 仅当启动逻辑不止「降权后 exec」时（如 huozhi 生成 JWT）；
+│   │                          #   纯 PUID/PGID 降权已下沉到公共基镜，不再各仓库维护
 │   └── <工具脚本>             # [可选] smoke / check / icon 生成
 ├── bin/                       # [可选] go build 产物落地（gitignore；Dockerfile COPY 源）
 ├── dist/                      # [可选·条件] 运行时静态交付型的 CI 暂存区（gitignore）
@@ -55,7 +56,7 @@ entrypoint 本身还有五种位置、两种命名。这些分裂**不会让任�
 │   ├── workflows/ci.yml       # [必需·自研] 薄调用 reusable workflow，pin @v1
 │   └── dependabot.yml         # [必需·自研] 整份覆盖自 preset
 ├── .nvmrc                     # [必需·条件] 有 Node 前端时；必须在仓库根
-├── .gitignore  .dockerignore  # [必需]（后者不得排除 bin/ dist/ scripts/docker-entrypoint.sh）
+├── .gitignore  .dockerignore  # [必需]（后者不得排除 bin/ dist/ 等 Dockerfile 的 COPY 源）
 ├── Dockerfile                 # [可选] 装配式，留根
 ├── docker-compose.yml         # [可选] 留根；后缀统一 .yml
 ├── Makefile                   # [可选] 薄封装：build 目标调 scripts/build.sh
@@ -106,7 +107,7 @@ Makefile 只做薄封装并保留 dev/test/docker/clean 便捷目标。根目录
 | `web/` | npm 工程全部：src、public、三件套、框架配置、pnpm-workspace.yaml | Go 代码（除登记的 web/embed.go 变体）、.nvmrc | CI（web-dir）、dependabot npm 段、开发服务器 |
 | `static/`+`templates/` | Go 模板型前端的模板与静态资源 | npm 工程 | 所在 Go 包的 embed |
 | `scripts/build.sh` | 唯一构建实现 | 一次性脚本（用完删，别沉淀） | 人、Makefile、CI smoke job |
-| `scripts/docker-entrypoint.sh` | PUID/PGID 降权 + chown 数据目录 + exec su-exec | 业务启动参数（归 Dockerfile CMD） | Dockerfile COPY、check-docker.py 的 nonroot 检测 |
+| `scripts/docker-entrypoint.sh` | [罕见] 业务启动逻辑（如 huozhi 生成 JWT），最后 `exec` 基镜降权入口 | 纯 PUID/PGID 降权（已在公共基镜里，不再各仓库维护） | Dockerfile COPY |
 | `bin/` | go build 产物 | 入库产物（gitignore） | Dockerfile `COPY bin/<app>` |
 | `dist/`（根） | 运行时静态交付型的 CI 暂存区 | 入库产物 | Dockerfile `COPY dist` |
 | `data/` | 本地开发数据库与上传 | 入库（gitignore） | 本地运行；容器内路径由 env/compose 决定 |
@@ -114,7 +115,7 @@ Makefile 只做薄封装并保留 dev/test/docker/clean 便捷目标。根目录
 | `.github/workflows/ci.yml` | 薄调用 reusable workflow | 内联构建逻辑 | GitHub Actions |
 | `.github/dependabot.yml` | 依赖更新（gomod/npm/docker/actions 段） | 手改 preset 正文 | Dependabot、check-repo-baseline.py |
 | `.nvmrc` | 一个 Node 大版本号（26） | pnpm 版本（归 packageManager） | CI `node-version-file`、build.sh |
-| `.dockerignore` | 排除源码/文档/本地数据 | **不得排除 `bin/`、`dist/`、`scripts/docker-entrypoint.sh`** | docker build、check-docker.py |
+| `.dockerignore` | 排除源码/文档/本地数据 | **不得排除 Dockerfile 的 COPY 源（`bin/`、`dist/`、`internal/config` 等）** | docker build、check-docker.py |
 | `Dockerfile` | 装配：FROM pin + COPY 预编译产物 + 非 root + 探活 + exec form | 编译步骤、工具链版本声明 | CI image job、本地 docker build |
 | `docker-compose.yml` | 单机部署：镜像 tag、端口、env、卷、healthcheck | build context 指向别处 | 部署人 |
 | `Makefile` | 薄封装 + dev/test/docker/clean 便捷目标 | 构建实现本体 | 人 |
@@ -128,35 +129,35 @@ Makefile 只做薄封装并保留 dev/test/docker/clean 便捷目标。根目录
 迁移已完成。下表是**当前**的真实布局；迁移前的形态差异记在表下的「原始分歧」一段，
 留作回溯用。◆=仍待迁移，✓=已合规/已迁移，✖=fork 豁免（不参与本契约）。
 
-| 项目 | Go 模块/入口 | 前端·形态 | Docker·entrypoint | 状态 |
+| 项目 | Go 模块/入口 | 前端·形态 | Docker·降权 | 状态 |
 |---|---|---|---|---|
-| shenshi | 根 + `cmd/shenshi` | web/·Vite（embed 位 `internal/web/dist`） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 1 批 |
-| feixi | 根 + `cmd/feixi` | web/·Vite（embed 位 `internal/web/dist`） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 1 批 |
-| qingye | 根 + `cmd/qingye` | web/·SvelteKit（根 `dist/` 暂存，运行时 `WEB_DIR`） | 根全套；直起 | ✓ 第 3 批 |
-| mujian | 根 + `cmd/mujian` | web/·SvelteKit（embed 位 `internal/web/dist` + 根 `dist/` 暂存） | 根全套；CMD `su` 降权 | ✓ 第 3 批 |
-| huozhi | 根 + `cmd/huozhi-server` | web/·SvelteKit | 根全套；compose(.yml)；`scripts/docker-entrypoint.sh` | ✓ 第 2 批 |
-| bili-history | 根 + `cmd/bili-history` | web/·Nuxt（generate→`.output/public`） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 2 批 |
-| diarum | 根 + `cmd/diarum` | web/·SvelteKit（embed 位 `internal/static/build`，登记变体） | 根 Dockerfile；无 compose；`scripts/docker-entrypoint.sh` | ✓ 第 2 批 |
-| zhichang | 根 + `cmd/zhichangd` | web/·SvelteKit（`web/embed.go` 变体） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 4 批 |
-| liuxia | 根 + `cmd/liuxia` | 无（Go 模板，内嵌在 `internal/web`） | 根全套；`scripts/docker-entrypoint.sh` | ✓ 第 4 批 |
-| qbhive | 根 + `cmd/server` | `web/static`·纯静态 | 根 Dockerfile + compose | ✓ 第 4 批 |
-| tuqie | 根 + `cmd/tuqie` | web/·Vite（`web/embed.go` 变体） | 根全套；直起 | ✓（`scripts/build.sh`） |
-| whoami | 根 + `cmd/whoami` | 无（`internal/web` Go 模板） | 根 Dockerfile + .dockerignore；无 compose | ✓ 第 4 批 |
-| qiansi | 根 + `cmd/server` | web/·Vite | 根全套；alpine 直起（无 entrypoint） | 无 | ✓（根 dist/ 暂存是标准一部分） |
-| guanfu | 根 + `cmd/guanfu` | web/·SvelteKit | 根全套；`scripts/docker-entrypoint.sh` | scripts/build.sh | ✓（**仓内参照实现**） |
-| chaxin | 根 + `cmd/server` | web/·纯静态（build.sh 手搓） | 根全套；直起 | Makefile + web/build.sh | ✓（npm=False 已登记） |
-| yuexi | 根平铺 | 无（Go 模板+tailwind CLI） | 根全套；直起 | 无 | ✓ |
-| bili-dl | 根平铺 | 无 | 无 Dockerfile | 无 | ✓（CLI 型） |
-| docker-db-auto-backup | 根全平铺 | 无 | 根全套；root_exempt 已登记 | 无 | ✓ |
-| WebMonitor | Python backend/ | `frontend/`·Vite | Dockerfile.slim + frontend/Dockerfile + compose×2 | 自有 | 部分豁免（自有镜像流程，go-dir 传空）；frontend→web 可选 |
-| ntfy | 上游平铺 | web/·上游 | 根（上游 Dockerfile） | 上游 Makefile | ✖ fork 豁免 |
-| GoldPrice / ntfyx | Swift | 无 | 无 | 根 build.sh / build-app.sh | ✖ fork 豁免 |
+| shenshi | 根 + `cmd/shenshi` | web/·Vite（embed 位 `internal/web/dist`） | 公共基镜 + `CMD` | ✓ 第 1 批 |
+| feixi | 根 + `cmd/feixi` | web/·Vite（embed 位 `internal/web/dist`） | 公共基镜 + `CMD` | ✓ 第 1 批 |
+| qingye | 根 + `cmd/qingye` | web/·SvelteKit（根 `dist/` 暂存，运行时 `WEB_DIR`） | 公共基镜 + `CMD`（两数据目录） | ✓ 第 3 批 |
+| mujian | 根 + `cmd/mujian` | web/·SvelteKit（embed 位 `internal/web/dist` + 根 `dist/` 暂存） | 公共基镜（debian）+ `CMD` | ✓ 第 3 批 |
+| huozhi | 根 + `cmd/huozhi-server` | web/·SvelteKit | 保留 entrypoint（生成 JWT）→ 调基镜 | ✓ 第 2 批 |
+| bili-history | 根 + `cmd/bili-history` | web/·Nuxt（generate→`.output/public`） | 公共基镜 + `CMD`（加装 ffmpeg） | ✓ 第 2 批 |
+| diarum | 根 + `cmd/diarum` | web/·SvelteKit（embed 位 `internal/static/build`，登记变体） | 公共基镜 + `CMD`；无 compose | ✓ 第 2 批 |
+| zhichang | 根 + `cmd/zhichangd` | web/·SvelteKit（`web/embed.go` 变体） | 公共基镜 + `CMD` | ✓ 第 4 批 |
+| liuxia | 根 + `cmd/liuxia` | 无（Go 模板，内嵌在 `internal/web`） | 公共基镜 + `CMD` | ✓ 第 4 批 |
+| qbhive | 根 + `cmd/server` | `web/static`·纯静态 | 公共基镜 + `CMD` | ✓ 第 4 批 |
+| tuqie | 根 + `cmd/tuqie` | web/·Vite（`web/embed.go` 变体） | 公共基镜 + `CMD` | ✓（`scripts/build.sh`） |
+| whoami | 根 + `cmd/whoami` | 无（`internal/web` Go 模板） | 公共基镜 + `CMD`；无 compose | ✓ 第 4 批 |
+| qiansi | 根 + `cmd/server` | web/·Vite | 公共基镜 + `CMD` | ✓（根 dist/ 暂存是标准一部分） |
+| guanfu | 根 + `cmd/guanfu` | web/·SvelteKit | 公共基镜 + `CMD` | ✓（**仓内参照实现**） |
+| chaxin | 根 + `cmd/server` | web/·纯静态（build.sh 手搓） | 公共基镜 + `CMD` | ✓（npm=False 已登记） |
+| yuexi | 根平铺 | 无（Go 模板+tailwind CLI） | 公共基镜 + `CMD` | ✓ |
+| bili-dl | 根平铺 | 无 | 无 Dockerfile | ✓（CLI 型） |
+| docker-db-auto-backup | 根全平铺 | 无 | 根全套；root_exempt 已登记 | ✓ |
+| WebMonitor | Python backend/ | `frontend/`·Vite | Dockerfile.slim + frontend/Dockerfile + compose×2 | 部分豁免（自有镜像流程，go-dir 传空）；frontend→web 可选 |
+| ntfy | 上游平铺 | web/·上游 | 根（上游 Dockerfile） | ✖ fork 豁免 |
+| GoldPrice / ntfyx | Swift | 无 | 无 | ✖ fork 豁免 |
 
 **当前统计**：前端命名 web×14 / frontend×1（WebMonitor，待其批次）/ 无×7；
 Go 布局 根+cmd+internal×15 / 平铺×3（yuexi、bili-dl、docker-db-auto-backup）/
-Python backend×1 / 上游×1；compose 后缀 **.yaml 已清零**；entrypoint 已全部归到
-`scripts/docker-entrypoint.sh`（或直起、或不需要）；缺 .dockerignore 仅剩 bili-dl
-（CLI 型、无 Dockerfile，不适用）。
+Python backend×1 / 上游×1；compose 后缀 **.yaml 已清零**；降权已全部收口到公共基镜
+（15 个 alpine 服务 + mujian 走 debian 版；huozhi 另保留生成 JWT 的 entrypoint）；
+缺 .dockerignore 仅剩 bili-dl（CLI 型、无 Dockerfile，不适用）。
 
 **原始分歧（迁移前）**：前端命名 web×9 / frontend×4 / site×1 / internal/web×1 / 无×7；
 Go 布局 根+cmd+internal×8 / server×2 / backend×3 / 平铺×4 / 上游×1；compose .yml×15 /
@@ -211,13 +212,14 @@ Go 布局 根+cmd+internal×8 / server×2 / backend×3 / 平铺×4 / 上游×1�
 5. **构建脚本**：scripts/build.sh 改三处路径（前端目录、embed 暂存目标、
    `go build ./cmd/<app>`）；Makefile web/vet/clean 目标同步；dev.sh 改
    BACKEND_DIR/FRONTEND_DIR；根 build.sh 移入 scripts/。
-6. **Docker 四件套**：`git mv docker-entrypoint.sh scripts/docker-entrypoint.sh`
-   （或 entrypoint.sh 同名迁移）；`git mv deploy/docker-compose.yml docker-compose.yml`；
-   Dockerfile COPY 源改 `scripts/`（老式 COPY+RUN chmod 可顺手合一 `--chmod=755`）；
-   compose `.yaml→.yml`；**.dockerignore 同步是最大的坑**——排除名单里的旧目录名
-   （`internal/web/`、`frontend`、`server/dist/`）要改新名，且任何情况下不得排除
-   `bin/`、`dist/`、`scripts/docker-entrypoint.sh`（否则 `COPY` 报的却是
-   「file not found」这种误导性错误）；缺 .dockerignore 的补上。
+6. **Docker 四件套**：Dockerfile 改为 `FROM ghcr.io/felix2yu/base:alpine-3.24`（glibc/CGO
+   用 `:debian-13`）并删掉自带的 `scripts/docker-entrypoint.sh`（纯降权已下沉到基镜）；
+   只有启动逻辑不止「降权后 exec」时才保留 entrypoint，且在末尾
+   `exec /usr/local/bin/docker-entrypoint.sh …`；`git mv deploy/docker-compose.yml
+   docker-compose.yml`；compose `.yaml→.yml`；**.dockerignore 同步是最大的坑**——
+   排除名单里的旧目录名（`internal/web/`、`frontend`、`server/dist/`）要改新名，
+   且任何情况下不得排除 Dockerfile 的 COPY 源（`bin/`、`dist/`、`internal/config` 等，
+   否则 `COPY` 报的却是「file not found」这种误导性错误）；缺 .dockerignore 的补上。
 7. **CI 输入**（ci.yml）：`go-dir: server|backend → .`；`web-dir: frontend|site|internal/web → web`；
    image/release 补 `main-package: ./cmd/<app>`；`frontend-stage-command` 拷贝目标改新
    embed 位；smoke 等自有 job 的 `go-version-file`/`cache-dependency-path` 别漏。
@@ -254,6 +256,6 @@ python3 scripts/check-reusable-inputs.py        # CI input 名契约
 # - [ ] go.mod 在仓库根，main 在 cmd/<app>/，无第二个 main 包
 # - [ ] 前端目录叫 web/，三件套齐全且同级
 # - [ ] embed 位在 internal/web/dist，.gitkeep 占位已提交
-# - [ ] Dockerfile/compose/.dockerignore 在根，entrypoint 在 scripts/docker-entrypoint.sh
+# - [ ] Dockerfile/compose/.dockerignore 在根；降权走公共基镜（无需自带 entrypoint）
 # - [ ] README/AGENTS.md 无旧路径残留（grep -rn 'server/\|frontend/\|site/' 排除历史快照目录）
 ```

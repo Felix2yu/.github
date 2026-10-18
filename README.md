@@ -1,7 +1,7 @@
 # Felix2yu/.github — 统一 CI/CD 工作流
 
-13 个自研 Go 仓库共用的 GitHub Actions 规范。构建、版本发布、镜像构建、Codecov 上报
-四处逻辑各只有一份实现；各仓库只保留一个薄调用文件传参数。
+13 个自研 Go 仓库共用的 GitHub Actions 规范。构建、版本发布、镜像构建、公共基镜、
+Codecov 上报五处逻辑各只有一份实现；各仓库只保留一个薄调用文件传参数。
 
 前端一律用 **pnpm**：工具与版本不靠 workflow 猜，而是读各仓库自己的声明——
 Node 版本读 `.nvmrc`，包管理器读 `package.json` 的 `packageManager` 字段，
@@ -13,6 +13,7 @@ Felix2yu/.github/
 │   ├── reusable-test.yml      测试 + 覆盖率 → Codecov
 │   ├── reusable-image.yml     预编译 + 双架构镜像 + manifest 合并
 │   ├── reusable-release.yml   5 平台二进制 + 版本注入 + 校验和
+│   ├── base-image.yml         公共基镜构建发布 + 触发各应用重建
 │   └── self-test.yml          本仓库门禁（actionlint + 重复块一致性检查）
 ├── docs/                      跨仓库契约：写进任一项目都只有那一个项目看得到
 │   ├── PWA.md                 PWA 实现规范（图标 / head / manifest / SW）
@@ -33,6 +34,8 @@ Felix2yu/.github/
 ├── preset/
 │   └── dependabot.yml         组织统一的依赖更新配置模板（整份覆盖，别手改副本）
 ├── pwa-preset/                PWA 预设：图标生成器、head 片段、manifest / SW 模板
+├── docker/
+│   └── base/                  公共运行时基镜（alpine / debian 两版 + 通用降权入口）
 └── scripts/
     ├── check-pm-blocks.sh         前端解析/安装重复块逐字节一致性
     ├── check-reusable-inputs.py   调用方 input 契约校验（本地跑）
@@ -65,6 +68,9 @@ on:
     branches: [main]
   release:
     types: [published]
+  # 公共基镜更新后由 base-image.yml 触发即时重建（可选，但推荐加上）
+  repository_dispatch:
+    types: [base-image-updated]
   schedule:
     - cron: '0 3 * * 1'
   workflow_dispatch:
@@ -212,6 +218,27 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 > 消费端的 `image` job **不再**用 `if: github.event_name != 'release'` 排除发布事件。
 > 这样「发布」既出二进制（release job）也出版本化镜像（image job），二者同时跑；
 > 新 tag 同时触发 push 与 release 两条流水线时，因 `concurrency.group` 共用 `refs/tags/vX` 会自动串行，不会并发写 GHCR。
+
+### 公共运行时基镜
+
+应用镜像不再各自 `apk add` / `apt install`，而是统一 `FROM ghcr.io/felix2yu/base:<variant>`：
+
+| 基镜 tag | 基底 | 内含 |
+|---|---|---|
+| `alpine-3.24` | `alpine:3.24` | ca-certificates、tzdata、su-exec、`app` 用户、降权入口 |
+| `debian-13` | `debian:13-slim` | 同上，降权用 gosu（glibc，供 CGO 的 mujian） |
+
+定义在 `docker/base/`，由 `.github/workflows/base-image.yml` 构建：双 runner 出 amd64/arm64
+→ `imagetools create` 合并 manifest → 向 `notify` 矩阵里的每个应用仓库发
+`repository_dispatch(base-image-updated)`。应用 `ci.yml` 加 `on.repository_dispatch`
+即即时重建；各应用原有的每周 `schedule` 是兜底。
+
+> **为什么不 pin digest**：基镜一变就主动触发重建，`pull: true` 会重新解析 tag，各应用
+> 不必手改 digest。这也是唯一豁免 digest 的 `FROM`（见 [docs/docker.md](docs/docker.md) 第三节）。
+>
+> **需要的 secret**：`DISPATCH_TOKEN` —— 一个对各应用仓库有 `Actions: write` 的 token
+> （fine-grained PAT，或 classic PAT 带 `repo` scope）。未配置时 `notify` 只告警不失败，
+> 靠各应用的每周 `schedule` 兜底。
 
 ---
 

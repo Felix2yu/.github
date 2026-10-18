@@ -70,11 +70,44 @@ CopyIgnoredFile: attempted to copy "bin/app" but the file is excluded
 
 | 方案 | 适用 | 做法 | 已有仓库 |
 |---|---|---|---|
-| A · distroless nonroot | 无 shell 需求、不写数据卷 | `FROM gcr.io/distroless/static:nonroot`（uid 65532） | 暂无（qiansi 2026-10-17 从 distroless 切到 alpine，见下方说明） |
-| B · 静态 `USER` | 镜像内有固定数据目录，宿主无需对齐 | Dockerfile 里 `RUN adduser` + `USER <name>` | RSSRob / WebMonitor / qbhive / tuqie |
-| C · `su-exec` + PUID/PGID | **绑定挂载了宿主目录** | 非 root 用户 + 入口脚本按 PUID/PGID 改 uid 并 `chown` 数据目录 | shenshi / liuxia / diarum / mujian / bili-history |
+| A · distroless nonroot | 无 shell 需求、不写数据卷 | `FROM gcr.io/distroless/static:nonroot`（uid 65532） | 暂无 |
+| B · 静态 `USER` | 镜像内有固定数据目录，宿主无需对齐 | Dockerfile 里 `RUN adduser` + `USER <name>` | RSSRob / WebMonitor（Python，基镜是 python 官方镜像） |
+| C · 公共基镜 + PUID/PGID | **所有自研 Go 服务** | `FROM ghcr.io/felix2yu/base:<variant>`；降权入口随基镜提供，应用只给 `CMD` | 15 个 alpine 服务 + mujian（走 debian 版） |
 
 **判定标准只有一条**：容器是否需要写宿主的绑定挂载目录。需要 → 方案 C；不需要 → A 或 B。
+
+### 方案 C：公共基镜 + 降权入口（默认形态）
+
+`PUID/PGID` 解析、数据目录 `chown`、`exec su-exec` 这些**全部下沉到公共基镜**
+`ghcr.io/felix2yu/base`，各应用只提供 `CMD`：
+
+```dockerfile
+FROM ghcr.io/felix2yu/base:alpine-3.24      # glibc/CGO 用 :debian-13
+
+ENV APP_DATA_DIR=/data                       # 要 chown 的数据目录，多个用空格分隔
+COPY --chmod=755 bin/app /usr/local/bin/app
+CMD ["app", "-addr", ":8080"]                # ENTRYPOINT 由基镜提供（降权后 exec）
+```
+
+**为什么不让各仓库各写一份 entrypoint**：这 8 份脚本已经分叉出不同的默认值
+（`1000:100` vs `1000:1000`）、不同的 chown 目标（`/data` vs `/app/data`）、
+以及对非 root 启动的不同处理；`apk`/`apt` 层在独立构建下还不可复现
+（安装时刻写进了 `/lib/apk/db/installed` 与 `/var/log/dpkg.log`），各自 `apk add`
+永远各存一份 —— 只有 `FROM` 同一个基镜 digest，那些公共层才真正共享。
+
+基镜的环境契约（应用可覆盖）：
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `PUID` / `PGID` | `1000` / `1000` | 运行身份；数字 uid/gid 直接用于 chown 与降权 |
+| `APP_DATA_DIR` | `/data` | 启动时 `chown -R` 给运行身份的数据目录，空格分隔可给多个 |
+
+四个细节由基镜统一保证：`chown -R` 覆盖整棵数据目录树、非 root 启动（`--user`）时
+短路直接运行、`exec` 替换 PID 1（信号可达，`docker stop` 不超时）、默认 `1000:1000`。
+
+> 各仓库不再有 `scripts/docker-entrypoint.sh`。`huozhi` 是唯一例外：它要生成并持久化
+> JWT secret，保留了自己的 entrypoint，但在最后 `exec /usr/local/bin/docker-entrypoint.sh …`
+> 调用基镜的降权入口。
 
 ### 为什么需要 PUID/PGID（方案 C 的全部理由）
 
@@ -87,30 +120,31 @@ error 14: unable to open database file
 ```
 
 而 `chmod 777 data` 只是把问题推迟到下一次备份恢复之后重新出现。正确做法是把容器内
-用户的 uid/gid 改成宿主 directory 的属主：
+运行身份的 uid/gid 对齐到宿主目录属主。这段逻辑**只存在基镜里一份**
+（`.github/docker/base/docker-entrypoint.sh`）：
 
 ```sh
 PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
-groupmod -g "$PGID" appuser 2>/dev/null || true
-usermod  -u "$PUID" -g "$PGID" appuser 2>/dev/null || true
-chown -R "${PUID}:${PGID}" /data
-exec su-exec "${PUID}:${PGID}" "$@"
+for dir in $APP_DATA_DIR; do            # 默认 /data，空格分隔可给多个目录
+    chown -R "${PUID}:${PGID}" "$dir" 2>/dev/null || true
+done
+exec su-exec "${PUID}:${PGID}" "$@"      # debian 版基镜用 gosu
 ```
 
 四个细节都不能省：
 
-- **`groupmod`/`usermod` 要 `|| true`**：与镜像里已有用户 uid 冲突时失败是常态，
-  不该让容器起不来。
 - **`chown -R` 必须覆盖整个数据目录**：历史遗留的 root 属主文件（比如某次用 root
   跑过）会残留下来继续挡住写入。
 - **`exec`**：降权后的进程要替换 PID 1，否则信号收不到，`docker stop` 会等到 10 秒
   超时后 SIGKILL——SQLite 的 WAL 就可能来不及 checkpoint。
 - **默认值要有**：不传 PUID/PGID 也得能跑起来，默认 `1000:1000`（macOS/Linux 首个
   普通用户通常就是这个）。
+- **非 root 启动要短路**：`docker run --user` 或 k8s `runAsUser` 时已经没有 root 权限，
+  直接 `exec "$@"`，别让 chown 失败把容器卡在启动阶段。
 
-> 「慎始」的默认 `PGID=100` 是 macOS 上 `staff` 组的值，为了让宿主 Finder 能直接读写
-> `./data`。其它仓库统一用 `1000:1000`，别照抄这个特例。
+> 统一默认 `1000:1000` 后，「慎始」原先为 macOS `staff` 组特设的 `PGID=100` 已取消；
+> 确有需要时在 compose 里显式设 `PGID=100` 即可。
 
 ### 什么情况下保留 root
 
@@ -137,6 +171,18 @@ FROM alpine:latest          # 错
 `latest` 不是「最新版」的意思，是「构建时恰好是这个」的意思。同一份 Dockerfile，今天
 构建出 3.24，三个月后构建出 3.27；镜像 digest 变了、行为变了，而 Dockerfile 一行没改。
 
+**公共基镜是唯一不 pin digest 的 `FROM`**：
+
+```dockerfile
+FROM ghcr.io/felix2yu/base:alpine-3.24   # 应用层这样写
+```
+
+写 tag、不写 digest 是**刻意**的：基镜（`.github/docker/base/`）一变，`base-image.yml`
+就向各应用发 `repository_dispatch` 触发重建，build 的 `pull: true` 会重新解析 tag 到
+最新 digest。这样各应用不必手改 digest，也不会永久停在某个旧基镜上。（顺带一提：
+`apk`/`apt` 层在独立构建下不可复现，「层共享」恰恰不能靠指令一致，只能靠 `FROM`
+同一个基镜 digest —— 这正是抽公共基镜的动机。）
+
 唯一尴尬的是 distroless：它没有版本 tag，只有 `latest` / `nonroot` / `debug` 三个
 变体。要 pin 只能写 digest（`image@sha256:...`），或者在一句注释里写明「此处依赖
 distroless 无版本策略」。
@@ -156,13 +202,12 @@ distroless 无版本策略」。
 | 定时任务晚了 8 小时 | 同上 |
 | SQLite 里 `date('now')` 与 Go 的 `time.Now()` 差一天 | 前者 UTC，后者本机时区 |
 
-```dockerfile
-RUN apk add --no-cache tzdata ca-certificates su-exec
-ENV TZ=Asia/Shanghai
-```
+公共基镜 `ghcr.io/felix2yu/base:*` 已内置 `tzdata` 与 `ENV TZ=Asia/Shanghai`，
+应用无需再 `apk add`；确需别的时区时覆盖 `TZ` 即可。
 
 Alpine 不装 `tzdata` 时，Go 的 `time.LoadLocation("Asia/Shanghai")` 会直接报错
-`unknown time zone`，且只在容器里报——本机永远复现不了。
+`unknown time zone`，且只在容器里报——本机永远复现不了。基镜消除的正是这类
+「每个仓库都得记得装一次」的隐性前提。
 
 ---
 
@@ -193,9 +238,8 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 **qiansi 的取舍**（2026-10-17）：它原本是唯一一个走方案 A 的仓库，但 distroless
 带来两个代价——探活只能登记例外、镜像里没有任何调试手段（进不去、抓不到网络栈）。
-改成 `alpine:3.24` 后 `HEALTHCHECK` 打 `/api/v1/health` 就能用，同时补上 `tzdata`
-（它按 `time.Local` 解析自然日，缺时区库会静默退化成 UTC）。**运行身份不变，仍是 root**：
-数据卷是绑定挂载 `./data`，降权需要 PUID/PGID 入口脚本配套迁移属主，单独一轮做。
+改成公共基镜（alpine 版）后 `HEALTHCHECK` 打 `/api/v1/health` 就能用，`tzdata` 与
+降权入口也随基镜一起来：数据卷绑定挂载 `./data` 时按 `PUID/PGID` chown 属主即可。
 
 
 ---
@@ -206,7 +250,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 - [x] 装配式：`COPY` 的产物路径没有被 `.dockerignore` 排除
 - [x] `FROM` 全部 pin 到具体 tag 或 digest，无裸 `:latest`
-- [x] 非 root 运行：`USER` / `su-exec` / distroless `nonroot` 三选一（或已登记豁免）
+- [x] 非 root 运行：`FROM ghcr.io/felix2yu/base:*`（公共基镜）/ `USER` / distroless `nonroot` 三选一（或已登记豁免）
 - [x] 有探活手段：`HEALTHCHECK` 或 compose `healthcheck:`
 - [x] 涉及本地日期的镜像装了 tzdata 并设了 `TZ`
 - [x] `ENTRYPOINT` / `CMD` 用 exec form（数组写法），而非 shell form
