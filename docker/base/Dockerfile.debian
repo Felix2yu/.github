@@ -1,0 +1,26 @@
+# 公共运行时基镜 · debian slim 版
+#
+# 供需要 glibc 的应用使用（当前唯一使用方是 CGO 的「幕间」mujian；它原先直接
+# FROM debian:13-slim，apt 层无法与任何其它镜像共享）。
+#
+# 与 alpine 版的差别只有两点：
+#   - 基镜像换成 debian:13-slim（glibc）
+#   - 降权工具用 gosu（debian 官方仓库有；su-exec 是 alpine 专有）
+# 入口脚本是同一份，运行时探测 su-exec / gosu 二者之一。
+FROM debian:13-slim
+
+ENV TZ=Asia/Shanghai \
+    PUID=1000 \
+    PGID=1000 \
+    APP_DATA_DIR=/data
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 1000 app \
+    && useradd -u 1000 -g app -M -s /bin/sh app
+
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 755 /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

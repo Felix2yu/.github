@@ -1,0 +1,30 @@
+# 公共运行时基镜 · alpine 版
+#
+# alpine 系应用统一 FROM 这一层，不再各自 `apk add`（原先 15 个仓库的包顺序、
+# 附加包、base 版本各不同，导致 apk 层永远是每个镜像各存一份）。
+#
+# 基镜内容 = 每个应用都需要的那几样：
+#   ca-certificates  TLS 校验（Go 读系统根证书，缺了 https 静默失败）
+#   tzdata           容器内本机时区（缺了 time.LoadLocation("Asia/Shanghai") 直接报错）
+#   su-exec          降权（供入口脚本使用）
+#   app 用户          uid/gid = 1000，与 entrypoint 的数字降权配合
+#   docker-entrypoint.sh  通用 PUID/PGID 降权入口（见同目录脚本）
+#
+# 应用只需 `FROM ghcr.io/felix2yu/base:alpine-3.24` + `CMD [...]`。
+# 版本 tag 不 pin digest：基镜一旦更新，由 base-image.yml 主动触发各应用重建
+# （build 时 pull:true 会重新解析 tag 到最新 digest）。
+FROM alpine:3.24
+
+ENV TZ=Asia/Shanghai \
+    PUID=1000 \
+    PGID=1000 \
+    APP_DATA_DIR=/data
+
+RUN apk add --no-cache ca-certificates tzdata su-exec \
+    && addgroup -g 1000 app \
+    && adduser -D -H -u 1000 -G app -s /bin/sh app
+
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 755 /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

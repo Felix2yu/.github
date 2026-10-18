@@ -1,0 +1,154 @@
+name: Base Images
+
+# 公共运行时基镜（docker/base/）的构建与发布。
+#
+# 为什么不用各应用自己 apk add / apt install：
+#   apk 与 apt 层在「独立构建」下都不可复现 —— 实测同一 Dockerfile 两次 --no-cache
+#   构建，apk 层 / apt 层 digest 都不同（安装时刻的时间戳写进了 /lib/apk/db/installed
+#   与 /var/log/dpkg.log）。所以「把指令写一致」并不能让层共享；唯一可靠的办法是
+#   让所有应用 FROM 同一个基镜 digest。基镜在这里构建一次、发布一次，各应用引用它。
+#
+# 发布后：
+#   1. 先合并双架构 manifest（alpine-3.24 / debian-13）
+#   2. 再向每个应用仓库发 repository_dispatch(base-image-updated) 触发重建
+#      —— 你要求不 pin digest，靠这次重建 + build 的 pull:true 把新基镜带进去
+#
+# 需要的 secret：DISPATCH_TOKEN —— 一个对各应用仓库有 Actions: write 的 token
+# （fine-grained PAT，或 classic PAT 带 repo scope）。未配置时跳过即时触发并告警，
+# 各应用仍有自身的每周 schedule 兜底。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker/base/**'
+      - '.github/workflows/base-image.yml'
+  schedule:
+    # 每周一 02:00 UTC 重建一次，拉取 alpine/debian 上游的安全补丁
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: base-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  docker:
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux/amd64, arch: amd64, runs-on: 'ubuntu-26.04' }
+          - { platform: linux/arm64, arch: arm64, runs-on: 'ubuntu-26.04-arm' }
+        variant:
+          - { name: alpine, dockerfile: docker/base/Dockerfile.alpine, tag: alpine-3.24 }
+          - { name: debian, dockerfile: docker/base/Dockerfile.debian, tag: debian-13 }
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 只推 per-arch，manifest 由下方 job 合并
+      - uses: docker/build-push-action@v7
+        with:
+          context: docker/base
+          file: ${{ matrix.variant.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ghcr.io/felix2yu/base:${{ matrix.variant.tag }}-${{ matrix.arch }}
+          # 强制重解析上游 tag（alpine:3.24 / debian:13-slim 背后的 digest 变了就重建），
+          # 这样每周空跑确实能把上游补丁带进来
+          pull: true
+          cache-from: type=gha,scope=base-${{ matrix.variant.name }}-${{ matrix.arch }}
+          cache-to:   type=gha,scope=base-${{ matrix.variant.name }}-${{ matrix.arch }},mode=max
+
+  manifest:
+    needs: docker
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        variant:
+          - { tag: alpine-3.24 }
+          - { tag: debian-13 }
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge ${{ matrix.variant.tag }} manifest
+        run: |
+          set -euo pipefail
+          image="ghcr.io/felix2yu/base"
+          tag="${{ matrix.variant.tag }}"
+          docker buildx imagetools create -t "$image:$tag" \
+            "$image:$tag-amd64" "$image:$tag-arm64"
+          echo "✓ $image:$tag"
+          docker buildx imagetools inspect "$image:$tag"
+
+  notify:
+    needs: manifest
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      # 与 scripts/check-docker.py 的 REPOS 保持同步：这里列出所有引用公共基镜、
+      # 需要「基镜更新 → 重建」的应用仓库（豁免的 docker-db-auto-backup / ntfy 不在此列）。
+      matrix:
+        repo:
+          - shenshi
+          - guanfu
+          - feixi
+          - diarum
+          - bili-history
+          - liuxia
+          - zhichang
+          - huozhi
+          - chaxin
+          - qingye
+          - yuexi
+          - qiansi
+          - qbhive
+          - tuqie
+          - whoami
+          - mujian
+    steps:
+      - name: Dispatch to ${{ matrix.repo }}
+        env:
+          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::DISPATCH_TOKEN 未配置，跳过对 ${{ matrix.repo }} 的即时触发（每周 cron 仍会兜底）"
+            exit 0
+          fi
+          code=$(curl -sS -o /tmp/resp -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/Felix2yu/${{ matrix.repo }}/dispatches" \
+            -d '{"event_type":"base-image-updated"}')
+          if [ "$code" != "204" ]; then
+            echo "::error::dispatch ${{ matrix.repo }} 失败（HTTP $code）"; cat /tmp/resp; exit 1
+          fi
+          echo "✓ 已触发 Felix2yu/${{ matrix.repo }}"
