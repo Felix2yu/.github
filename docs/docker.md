@@ -16,7 +16,7 @@
 ```
 CI job                     Docker 构建上下文             运行时镜像
 ─────────────────────     ────────────────────────     ─────────────────
-go build -o bin/app   →   COPY bin/app /usr/local/bin  →  只有二进制
+go build -o bin/app   →   COPY bin/app /app/app          →  只有二进制
 pnpm build           →   COPY dist ./dist         →  只有静态产物
 ```
 
@@ -84,10 +84,18 @@ CopyIgnoredFile: attempted to copy "bin/app" but the file is excluded
 ```dockerfile
 FROM ghcr.io/felix2yu/base:alpine-3.24      # glibc/CGO 用 :debian-13
 
-ENV APP_DATA_DIR=/data                       # 要 chown 的数据目录，多个用空格分隔
-COPY --chmod=755 bin/app /usr/local/bin/app
-CMD ["app", "-addr", ":8080"]                # ENTRYPOINT 由基镜提供（降权后 exec）
+WORKDIR /app
+ENV APP_DATA_DIR=/app/data                  # 要 chown 的数据目录，多个用空格分隔
+COPY --chmod=755 bin/app /app/app
+CMD ["/app/app", "-addr", ":8080"]          # ENTRYPOINT 由基镜提供（降权后 exec）
 ```
+
+**为什么二进制与数据都收在 `/app` 下**：容器里「属于这个应用的东西」集中在一处——
+`/app/app` 是可执行文件、`/app/data` 是挂载卷、静态产物是 `/app/dist`，看 compose 的
+挂载点和看镜像内容都对得上，不用在 `/data` 与 `/app/data` 之间逐仓库回忆。代价要写明白：
+`/app` 不在 `PATH` 上，所以 `CMD` 和 `docker exec` 都必须写绝对路径，任何依赖裸名解析的
+机制（例如 docker-db-auto-backup 按镜像名推导 `<bin> backup`）在这种布局下不成立，容器要
+显式声明绝对命令（`BACKUP_SQLITE_CMD=/app/app backup`）。
 
 **为什么不让各仓库各写一份 entrypoint**：这 8 份脚本已经分叉出不同的默认值
 （`1000:100` vs `1000:1000`）、不同的 chown 目标（`/data` vs `/app/data`）、
@@ -100,7 +108,7 @@ CMD ["app", "-addr", ":8080"]                # ENTRYPOINT 由基镜提供（降�
 | 变量 | 默认 | 作用 |
 |---|---|---|
 | `PUID` / `PGID` | `1000` / `1000` | 运行身份；数字 uid/gid 直接用于 chown 与降权 |
-| `APP_DATA_DIR` | `/data` | 启动时 `chown -R` 给运行身份的数据目录，空格分隔可给多个 |
+| `APP_DATA_DIR` | `/data` | 启动时 `chown -R` 给运行身份的数据目录，空格分隔可给多个。应用镜像按上面的模板显式覆盖为 `/app/data`；基镜默认保持 `/data`，是为了不牵动仍在用旧路径挂载的容器 |
 
 四个细节由基镜统一保证：`chown -R` 覆盖整棵数据目录树、非 root 启动（`--user`）时
 短路直接运行、`exec` 替换 PID 1（信号可达，`docker stop` 不超时）、默认 `1000:1000`。
