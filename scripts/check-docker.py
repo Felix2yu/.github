@@ -61,6 +61,9 @@ REPOS: dict[str, dict] = {
     # ntfy 的 Dockerfile 来自上游，Dockerfile-build 是构建期镜像。
     "ntfy": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     "zhichang": dict(df=["Dockerfile"], compose="docker-compose.yml"),
+    # siwu 的 compose 里另有一个 browser profile（headless-shell），
+    # 但 siwu 自身仍是装配式单二进制镜像，基线按主服务判。
+    "siwu": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     # whoami 无 compose：单容器部署，装配式 Dockerfile 直起，属已登记变体
     "whoami": dict(df=["Dockerfile"], compose=None),
 }

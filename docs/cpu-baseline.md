@@ -50,6 +50,7 @@ Go 标准库自带大量 AVX2/AVX-512 汇编（`runtime.memmove`、
 | bili-dl | off | 3523 | 496 | Go 标准库（门控） |
 | diarum | off | 3574 | 496 | Go 标准库（门控） |
 | qiansi / shenshi / liuxia / yuexi / chaxin | off | 4043 | 496 | Go 标准库（门控） |
+| siwu | off | 4043 | 496 | Go 标准库（门控）；modernc.org/sqlite + chromedp + apprise-go 均为纯 Go |
 | qbhive / qingye | off | 6737 | 496 | Go 标准库 + 依赖 SIMD（门控） |
 | tuqie | off | 6965 | 823 | 另加 gen2brain h265/jxl 的 AVX-512 汇编（`if hasAVX512` 门控） |
 | **mujian** | glibc | **228561** | **85771** | **avif-go 预编译静态库** |

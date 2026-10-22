@@ -361,6 +361,11 @@ Node 同样拉平到一个版本：8 个前端仓库的仓库根 `.nvmrc` 现在
 > 由 pnpm 11 生成、CI 也一直在装 11。升 pnpm 大版本等于同时赌一次 lock 格式与
 > `--frozen-lockfile` 的匹配，应作为独立一次 PR：先在 canary 仓库清缓存跑通再铺开。
 > 本机装的 pnpm 若比声明新，pnpm 会自己按 `packageManager` 切到 11.22.0（需要联网解析一次）。
+>
+> **canary 已就位**：司寤 `siwu`（2026-10-22 接入）声明 `pnpm@12.14.0`，实测仍产出
+> `lockfileVersion: 9.0`，`pnpm install --frozen-lockfile` 26ms 通过，Vite 8 构建正常。
+> 即「12 会改 lock 格式」这个假设在当前版本不成立。但铺开仍应是独立一次 PR：
+> 12 的新行为（安装时校验供应链策略、自动写入 `minimumReleaseAgeExclude`）需要逐个仓库确认。
 
 | 仓库 | go-dir | main-package | binary-name | image-name | web-dir | cgo | 需额外设置 |
 |---|---|---|---|---|---|---|---|
@@ -377,6 +382,7 @@ Node 同样拉平到一个版本：8 个前端仓库的仓库根 `.nvmrc` 现在
 | WebMonitor | `''`（后端是 Python） | — | — | —（自有 Docker 流程） | `frontend` | — | 只套用 `reusable-test.yml`：`go-dir: ''` 让 Go 步骤全部跳过；镜像仍由 `Dockerfile.slim` / `frontend/Dockerfile` 自己构建，它们的 Node 阶段用 `node -p "...packageManager.slice(5)"` 解析 pnpm 版本 |
 | qbhive | `.` | `./cmd/server` | `qbhive` | `ghcr.io/felix2yu/qbhive` | — | off | — |
 | zhichang | `.` | `./cmd/zhichangd` | `zhichangd` | `ghcr.io/felix2yu/zhichang` | `web` | off | `web-build-command: pnpm run check && pnpm run build`；**不需要** `frontend-stage-command`（`web/embed.go` 的 `//go:embed all:build` 直读 `web/build`）；`test-packages: ./internal/...`（入口带 embed，`./...` 在前端未构建时会报 no matching files） |
+| siwu | `.` | `./cmd/siwu` | `siwu` | `ghcr.io/felix2yu/siwu` | `web` | off | `web-build-command: pnpm run check && pnpm run build`；`frontend-stage-command: bash scripts/build.sh --stage-only`（同步逻辑只存在于 build.sh，不写第二份 `cp`）；`test-packages: ./internal/...`（`cmd/siwu` 带 `//go:embed`，前端未构建时 `./...` 报 no matching files）；`packageManager` 为 **pnpm@12.14.0**（见上节 canary 说明） |
 | whoami | `.` | `./cmd/whoami` | `whoami` | `ghcr.io/felix2yu/whoami` | — | off | `test-flags: -race -covermode=atomic`；无 compose（单容器 + 装配式 Dockerfile，已登记变体）；Go 模板型 |
 | yuexi | `.` | `.` | `yuexi` | `ghcr.io/felix2yu/yuexi` | — | off | `test-flags: -race -covermode=atomic` |
 | chaxin | `.` | `./cmd/server` | `chaxin` | `ghcr.io/felix2yu/chaxin` | — | off | 前端非 npm：`frontend-stage-command: sh web/build.sh` |
@@ -480,11 +486,11 @@ python3 scripts/check-cpu-baseline.py        # CPU 指令集基线
    **不要为了迎合脚本改掉一个更好的实现**（这事儿发生过：有人为满足「换缓存名」检查，
    差点把按构建名单精确增删缓存的等价实现改坏）。
 
-### 现状快照（2026-10-16）
+### 现状快照（2026-10-22）
 
 | 报告 | 结论 |
 |---|---|
-| PWA 契约 | 登记 13 个 Web 应用，12 个全绿（mujian 的 SW 待修；飞檄的 SW 只 precache 壳）。**观复 guanfu 尚未登记**，待单独排期 |
-| 容器镜像 | 19 个仓库，9 个全绿，10 个待修（多为以 root 运行 / 无探活） |
-| 仓库基线 | 20 个自研仓库全绿 |
-| CPU 指令集 | 12 个 `CGO_ENABLED=0` 仓库走纯 Go 基线（ymm 3523~6965，全部 CPUID 门控）；2 个 CGO 仓走固定基线容器 |
+| PWA 契约 | 登记 13 个 Web 应用，12 个全绿（mujian 的 SW 待修；飞檄的 SW 只 precache 壳）。**观复 guanfu 尚未登记**，待单独排期；司寤 siwu 明确**不做 PWA**（告警走 ntfy/bark 直达手机，控制台是桌面产物），不登记 |
+| 容器镜像 | 19 个仓库，9 个全绿，10 个待修（多为以 root 运行 / 无探活）。siwu 接入即全绿（公共基镜降权 + HEALTHCHECK + exec form） |
+| 仓库基线 | 22 个自研仓库全绿（2026-10-22 新增司寤 siwu） |
+| CPU 指令集 | 13 个 `CGO_ENABLED=0` 仓库走纯 Go 基线（ymm 3523~6965，全部 CPUID 门控）；2 个 CGO 仓走固定基线容器。siwu 实测 4043/496 |

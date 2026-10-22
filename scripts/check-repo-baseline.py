@@ -47,6 +47,7 @@ REPOS: dict[str, dict] = {
     "docker-db-auto-backup": dict(lang="go"),
     "ntfy": dict(lang="go", web="web"),
     "zhichang": dict(lang="go", web="web"),
+    "siwu": dict(lang="go", web="web"),
     "WebMonitor": dict(lang="python", web="frontend"),
     # 纯 Python：reusable-test.yml 的契约是「go-dir 留空则只跑 web-dir」，
     # 本仓既无 Go 也无前端，硬接只会得到一个什么都不做的绿灯。
@@ -185,11 +186,17 @@ def _has_ignore_entry(text: str, *names: str) -> bool:
 
     按行解析而不是子串搜索，也不是要求固定写法：`bin/`、`/bin/`、`bin` 都算，
     而 `binding/` 不该算。早期版本用 `/bin/` 正则，把写 `bin/` 的仓库全部误判成缺。
+
+    `bin/*` 这种「忽略目录内所有内容、再用 `!bin/.gitkeep` 留占位」的写法同样有效，
+    而且是保留空目录的**唯一**可行写法（`bin/` 会把目录一起排除，其后的取反规则失效）。
+    2026-10-22 司寤 siwu 即为此形态，按此补上识别。
     """
     for raw in text.splitlines():
         line = raw.strip().lstrip("/").rstrip("/")
         if not line or line.startswith("#"):
             continue
+        if line.endswith("/*"):
+            line = line[:-2].rstrip("/")
         if line in names or line.startswith("**/") and line[3:] in names:
             return True
     return False

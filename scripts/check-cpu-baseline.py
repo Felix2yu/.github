@@ -82,6 +82,10 @@ REPOS: dict[str, dict] = {
     "bili-dl": dict(go_dir=".", main_pkg=".", cgo="off", baseline=(3523, 496)),
     "qbhive": dict(go_dir=".", main_pkg="./cmd/server", cgo="off", baseline=(6737, 496)),
     "qingye": dict(go_dir="server", main_pkg=".", cgo="off", baseline=(6737, 496)),
+    # 司寤（siwu）：modernc.org/sqlite 纯 Go 驱动，CGO_ENABLED=0。
+    # 4043/496 为 2026-10-22 本机 linux/amd64 实测值（objdump），与 shenshi 等同组，
+    # 即只含 Go 标准库的门控型 AVX2/AVX-512 汇编。
+    "siwu": dict(go_dir=".", main_pkg="./cmd/siwu", cgo="off", baseline=(4043, 496)),
     "tuqie": dict(
         go_dir=".", main_pkg="./cmd/tuqie", cgo="off", tags="-tags nodynamic",
         baseline=(6965, 823),

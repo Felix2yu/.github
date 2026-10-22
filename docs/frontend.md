@@ -103,6 +103,12 @@ onlyBuiltDependencies:
 > 本机装的 pnpm 比声明新时，pnpm 会自己按 `packageManager` 切到 11.22.0
 > （需要联网解析一次）。这是它的 corepack 行为，不是报错。
 
+**canary：司寤 `siwu`（2026-10-22 接入）声明 `pnpm@12.14.0`**，是当前唯一跑 12 的仓库。
+实测 `pnpm-lock.yaml` 仍是 `lockfileVersion: 9.0`，`pnpm install --frozen-lockfile` 26ms 通过，
+Vite 8 构建与 `pnpm run check` 全绿 —— 即「12 会改 lock 格式」这个假设在当前版本不成立。
+铺开仍需独立一次 PR：12 新增的供应链策略校验会在安装时把「发布过新」的包写进
+`minimumReleaseAgeExclude`，需要逐个仓库确认 diff 是否只包含这一项。
+
 ---
 
 ## 四、产物放哪

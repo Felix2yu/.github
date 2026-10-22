@@ -110,7 +110,7 @@ def check_ignore_block(repo: pathlib.Path) -> list[str]:
     # 直接搜子串会误判成构建产物。
     mf = repo / "Makefile"
     if mf.is_file() and re.search(r"(?m)^\s*BIN\s*:?=\s*bin/", mf.read_text(encoding="utf-8", errors="replace")) \
-            and not re.search(r"(?m)^/?bin/?$", text):
+            and not re.search(r"(?m)^/?bin(?:/\*{1,2})?/?$", text):
         problems.append("缺规则 bin/（Makefile 的 build 产出 bin/<app>）")
     return problems
 
