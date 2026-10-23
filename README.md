@@ -164,19 +164,23 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 > 都拦不住（peer 要求 `>=4.8.4 <6.1.0` 只降级成警告）。这类问题只在跑 lint 时露头。
 >
 > 现状（2026-10-23 本地逐个 `pnpm install --frozen-lockfile` + `pnpm run lint` 实测）：
-> 已开启 12 个 —— feixi、shenshi、guanfu、qiansi、qingye、siwu、tuqie、zhichang、
-> diarum、mujian、bili-history、ntfy，全部 exit=0（warning 最多的 qiansi 45 条、
-> diarum 41 条，都不失败；bili-history 是 0 problems）。
-> 未开启 2 个：**huozhi** —— 83 个不符合自家 prettier 配置的文件已用 `pnpm run format`
-> 重排完毕（+2367/−1854，svelte-check 与 212 个用例复验无变化），但它的
-> `pnpm run lint` 仍有 **356 个 eslint error**：过去 prettier 先失败、`&&` 把 eslint
-> 短路了，所以这批从没露过面。根因不是代码烂，是**模板仓自己的 rules 段没和派生仓对齐**
-> —— qingye / qiansi / zhichang / guanfu 都写了 `'@typescript-eslint/no-explicit-any': 'warn'`
-> 并单独配了 `no-unused-vars`，huozhi 沿用默认 `error`。实测把这 4 条降为 warn 后剩
-> 52 个 error（no-unused-vars ×36、no-constant-binary-expression ×7、
-> prefer-svelte-reactivity ×6、prefer-const ×2、no-unused-svelte-ignore ×1）。
-> 其中 `no-constant-binary-expression` 通常是真 bug，建议单独查；
-> **WebMonitor** —— 即将废弃，不再纳入。
+> 已开启 13 个 —— feixi、shenshi、guanfu、qiansi、qingye、siwu、tuqie、zhichang、
+> diarum、mujian、bili-history、ntfy、huozhi，全部 exit=0（warning 最多的 qiansi 45 条、
+> diarum 41 条、huozhi 211 条，都不失败；bili-history 是 0 problems）。
+> 未开启：**WebMonitor** —— 即将废弃，不再纳入。
+>
+> **huozhi 的整改记录**（模板仓，也是唯一需要动代码的）：83 个不符合自家 prettier
+> 配置的文件用 `pnpm run format` 重排（+2367/−1854）；过去 `prettier --check && eslint`
+> 在 prettier 处就短路，**356 个 eslint error 从没露过面**。根因是模板仓的 rules 段
+> 没和派生仓对齐，对齐后剩 140 个，按类修完：
+> `no-navigation-without-resolve` ×51 → 全走 `resolve()`（本仓开了 typed routes，
+> 路由 id 要带 `/(auth)` 分组前缀，动态段用 `resolve('/(auth)/accounts/[id]', { id })`）；
+> `require-each-key` ×33 → 按元素结构补 key；`no-unused-vars` ×31、`no-empty` ×15
+> （补「为什么可以忽略」的注释）、失效的 `svelte-ignore` ×1。
+> 其中 `no-constant-binary-expression` ×7 是真 bug：`` `Bearer ${getToken()}` || '' ``
+> 的反引号永远非空，`|| ''` 是死代码，未登录时会发出 `Authorization: Bearer null`。
+> 复验：lint exit=0，svelte-check 0 errors / 10 warnings 与改动前一致，
+> vitest 19 files / 212 passed 与改动前一致，build 成功。
 >
 > 默认关闭的原因就在这里：这一项一开就是把主干判红，必须先有本地实测。
 
