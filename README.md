@@ -163,11 +163,15 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 > 而 pnpm 默认 `strict-peer-dependencies=false`，连 `pnpm install --frozen-lockfile`
 > 都拦不住（peer 要求 `>=4.8.4 <6.1.0` 只降级成警告）。这类问题只在跑 lint 时露头。
 >
-> 现状（2026-10-23 本地实测）：已开启 9 个 —— feixi、shenshi、guanfu、qiansi、qingye、
-> siwu、tuqie、zhichang、diarum（`pnpm run lint` 全部 exit=0，其中 diarum/qiansi 有
-> 41/45 条 warning 但不失败）。未开启：huozhi（83 个文件不符合自家 prettier 配置，
-> 是真欠账不是配置反了）；mujian、bili-history、ntfy 本地没装依赖未验证；
-> WebMonitor 的 `frontend/package.json` 根本没有 `lint` 脚本。
+> 现状（2026-10-23 本地逐个 `pnpm install --frozen-lockfile` + `pnpm run lint` 实测）：
+> 已开启 12 个 —— feixi、shenshi、guanfu、qiansi、qingye、siwu、tuqie、zhichang、
+> diarum、mujian、bili-history、ntfy，全部 exit=0（warning 最多的 qiansi 45 条、
+> diarum 41 条，都不失败；bili-history 是 0 problems）。
+> 未开启 2 个：**huozhi** —— 83 个文件不符合自家 prettier 配置（试过用 `--no-use-tabs`
+> 覆盖，反而涨到 121 个，所以是真欠账、不是配置写反）；**WebMonitor** —— 它的
+> `frontend/package.json` 里没有 `lint` 脚本，`pnpm run lint` 会 `ERR_PNPM_NO_SCRIPT`。
+>
+> 默认关闭的原因就在这里：这一项一开就是把主干判红，必须先有本地实测。
 
 > **包管理器不是入参**：读 `<web-dir>/package.json` 的 `packageManager`，只接受 `pnpm@<版本>`。
 > 写成 `npm@` / `bun@` 或缺字段都会让 job 直接失败，并打印可复制的修复行。
