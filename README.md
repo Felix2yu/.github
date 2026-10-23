@@ -167,9 +167,16 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 > 已开启 12 个 —— feixi、shenshi、guanfu、qiansi、qingye、siwu、tuqie、zhichang、
 > diarum、mujian、bili-history、ntfy，全部 exit=0（warning 最多的 qiansi 45 条、
 > diarum 41 条，都不失败；bili-history 是 0 problems）。
-> 未开启 2 个：**huozhi** —— 83 个文件不符合自家 prettier 配置（试过用 `--no-use-tabs`
-> 覆盖，反而涨到 121 个，所以是真欠账、不是配置写反）；**WebMonitor** —— 它的
-> `frontend/package.json` 里没有 `lint` 脚本，`pnpm run lint` 会 `ERR_PNPM_NO_SCRIPT`。
+> 未开启 2 个：**huozhi** —— 83 个不符合自家 prettier 配置的文件已用 `pnpm run format`
+> 重排完毕（+2367/−1854，svelte-check 与 212 个用例复验无变化），但它的
+> `pnpm run lint` 仍有 **356 个 eslint error**：过去 prettier 先失败、`&&` 把 eslint
+> 短路了，所以这批从没露过面。根因不是代码烂，是**模板仓自己的 rules 段没和派生仓对齐**
+> —— qingye / qiansi / zhichang / guanfu 都写了 `'@typescript-eslint/no-explicit-any': 'warn'`
+> 并单独配了 `no-unused-vars`，huozhi 沿用默认 `error`。实测把这 4 条降为 warn 后剩
+> 52 个 error（no-unused-vars ×36、no-constant-binary-expression ×7、
+> prefer-svelte-reactivity ×6、prefer-const ×2、no-unused-svelte-ignore ×1）。
+> 其中 `no-constant-binary-expression` 通常是真 bug，建议单独查；
+> **WebMonitor** —— 即将废弃，不再纳入。
 >
 > 默认关闭的原因就在这里：这一项一开就是把主干判红，必须先有本地实测。
 
