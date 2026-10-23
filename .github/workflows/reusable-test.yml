@@ -76,6 +76,16 @@ on:
         type: string
         default: ''
         description: '如 huozhi 的 pnpm run test:coverage'
+      web-lint-command:
+        type: string
+        default: ''
+        description: |
+          非空则在依赖装好后跑前端 lint，一般写 `pnpm run lint`。
+          为什么要有这一项：本仓群 CI 一度完全没有 lint 步骤，major 升级只有
+          「构建侧」被验证过。实测 typescript-eslint 8.71 在 TS 7.0.2 下直接抛
+          "typescript-eslint does not support TS 7.0."（退出码 2），而 pnpm 默认
+          strict-peer-dependencies=false，连 install 都拦不住 —— 这类问题只在跑
+          lint 时才露头。开启前请先本地验证 lint 是绿的，否则会把主干直接判红。
       coverage-file:
         type: string
         default: 'coverage.out'
@@ -169,6 +179,16 @@ jobs:
             pnpm run build
           fi
       # <<< web-install
+
+      # 依赖已由上一步装好，这里只做检查不改产物。命令走 env 传，避免把 input
+      # 直接插进 shell 脚本体。
+      - name: Frontend lint
+        if: inputs.web-dir != '' && inputs.web-lint-command != ''
+        shell: bash
+        working-directory: ${{ inputs.web-dir }}
+        env:
+          LINT_COMMAND: ${{ inputs.web-lint-command }}
+        run: eval "$LINT_COMMAND"
 
       - name: Frontend tests
         if: inputs.web-test-command != ''

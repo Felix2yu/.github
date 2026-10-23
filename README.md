@@ -148,6 +148,7 @@ jobs:
 | `node-version-file` | string | `.nvmrc` | 相对仓库根。读不到就失败，**不设兜底版本** |
 | `web-build-command` | string | `''` | 非空则替换默认的 `pnpm run build`；依赖仍由本流程统一 `pnpm install --frozen-lockfile` 安装 |
 | `web-test-command` | string | `''` | 如 huozhi 的 `pnpm run test:coverage` |
+| `web-lint-command` | string | `''` | 非空则在依赖装好后跑前端 lint，一般写 `pnpm run lint`。**开启前先本地验证 lint 是绿的** |
 | `coverage-file` | string | `coverage.out` | 相对 `go-dir` |
 | `frontend-coverage-file` | string | `''` | 相对仓库根 |
 | `codecov-flag-go` / `codecov-flag-web` | string | `backend` / `frontend` | |
@@ -155,6 +156,18 @@ jobs:
 | `runs-on` | string | `ubuntu-26.04` | |
 
 secrets：`CODECOV_TOKEN`（`required: false`）
+
+> **为什么单独有 `web-lint-command`**：本仓群的 test job 一度完全没有 lint 步骤，
+> major 升级只有「构建侧」被验证过。实测 `typescript-eslint@8.71` 在 `typescript@7.0.2`
+> 下是**加载期硬失败**（`Error: typescript-eslint does not support TS 7.0.`，退出码 2），
+> 而 pnpm 默认 `strict-peer-dependencies=false`，连 `pnpm install --frozen-lockfile`
+> 都拦不住（peer 要求 `>=4.8.4 <6.1.0` 只降级成警告）。这类问题只在跑 lint 时露头。
+>
+> 现状（2026-10-23 本地实测）：已开启 9 个 —— feixi、shenshi、guanfu、qiansi、qingye、
+> siwu、tuqie、zhichang、diarum（`pnpm run lint` 全部 exit=0，其中 diarum/qiansi 有
+> 41/45 条 warning 但不失败）。未开启：huozhi（83 个文件不符合自家 prettier 配置，
+> 是真欠账不是配置反了）；mujian、bili-history、ntfy 本地没装依赖未验证；
+> WebMonitor 的 `frontend/package.json` 根本没有 `lint` 脚本。
 
 > **包管理器不是入参**：读 `<web-dir>/package.json` 的 `packageManager`，只接受 `pnpm@<版本>`。
 > 写成 `npm@` / `bun@` 或缺字段都会让 job 直接失败，并打印可复制的修复行。
