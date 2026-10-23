@@ -162,12 +162,13 @@ def check_dependabot_labels(repo: str, text: str) -> list[str]:
                 capture_output=True, text=True, timeout=60,
             )
         except Exception:
-            return notes  # gh 缺失或超时：无法核实，不判红
+            break  # gh 缺失或超时：后面的结果同样不可信，停手不判红
         if proc.returncode != 0:
-            # 只在确认 404 时判失败，其它错误（限流、断网）视为无法核实。
+            # 只在确认 404 时记一笔；限流、断网属于无法核实，不判红。
             if "HTTP 404" in proc.stderr or "Not Found" in proc.stderr:
                 notes.append(f"标签 {name} 在 {slug} 不存在（GitHub 静默跳过，PR 会裸标签）")
-            return notes
+                continue  # 确认缺失的只管自己，其余标签还得核完
+            break
     return notes
 
 
