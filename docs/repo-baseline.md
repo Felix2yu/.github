@@ -16,6 +16,7 @@
 | 文档 | `README.md` | 存在且 > 400 字节（避免只有仓库名） | 三个月后自己都忘了怎么跑起来 |
 | 文档 | `LICENSE` | 自研仓库必须有（fork 沿用上游） | 别人不能合法复用 |
 | 依赖更新 | `.github/dependabot.yml` | 见 [dependabot.md](dependabot.md) | 依赖停更、CVE 无人知 |
+| 依赖更新 | `labels` 真实存在 | 每个 ecosystem 都声明 `labels`，且声明出的标签在该仓库确实存在（`gh api repos/<owner>/<repo>/labels/<name>`） | GitHub 对缺失标签**静默跳过**：配置没报错、PR 全是裸标签，按标签筛依赖 PR 的流程整套失灵 |
 | CI | `.github/workflows/ci.yml` | 调用共享 reusable workflow 且 pin `@v1` 或 `@vX.Y.Z` | 分支能不能编译没人知道 |
 | 前端三件套 | `.nvmrc` | 仓库根 | CI 无版本来源，直接失败而非兜底 |
 | 前端三件套 | `packageManager` | `pnpm@<版本>`，写在**前端目录**的 `package.json` | 同上 |

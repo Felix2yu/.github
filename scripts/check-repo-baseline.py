@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -100,6 +101,76 @@ def check_docs(repo: str, cfg: dict) -> tuple[bool, list[str]]:
     return (not notes), notes
 
 
+def _origin_slug(repo: str) -> str | None:
+    """从 origin 远程地址解析 owner/repo，标签存在性要用它查 GitHub。"""
+    url = subprocess.run(
+        ["git", "-C", str(WORKSPACE / repo), "config", "--get", "remote.origin.url"],
+        capture_output=True, text=True, timeout=20,
+    ).stdout.strip()
+    m = re.search(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", url)
+    return f"{m.group(1)}/{m.group(2)}" if m else None
+
+
+def _requested_labels(text: str) -> set[str]:
+    """抓出 dependabot.yml 各 entry 在 labels: 下声明的标签名（块式与流式都支持）。"""
+    out: set[str] = set()
+    lines = text.splitlines()
+    for i, ln in enumerate(lines):
+        m = re.match(r'^(\s+)labels:\s*(.*)$', ln)
+        if not m:
+            continue
+        base, tail = len(m.group(1)), m.group(2).strip()
+        if tail:  # 流式：labels: [dependencies, docker]
+            out |= {t.strip().strip("\"'") for t in tail.strip("[]").split(",") if t.strip()}
+            continue
+        for nxt in lines[i + 1:]:
+            if not nxt.strip():
+                continue
+            indent = len(nxt) - len(nxt.lstrip())
+            stripped = nxt.strip()
+            if indent <= base or not stripped.startswith("-"):
+                break
+            out.add(stripped[1:].strip().strip("\"'"))
+    return out
+
+
+def check_dependabot_labels(repo: str, text: str) -> list[str]:
+    """dependabot.yml 声明的 labels 必须在该仓库真实存在。
+
+    GitHub 对不存在的标签是静默跳过：配置看起来没毛病，PR 却一个标签都没有，
+    靠标签筛依赖 PR 的流程整套失灵。2026-10-23 实测 8 个自研仓同时踩中，
+    攒出 9 个裸标签 PR，没有任何一处报错。
+    查不到（无 gh / 断网）时不判红——随机波动判红会让人集体无视红灯。
+    """
+    notes: list[str] = []
+    n_eco = len(re.findall(r'package-ecosystem\s*:', text))
+    n_lab = len(re.findall(r'^\s+labels:', text, re.M))
+    if n_lab < n_eco:
+        notes.append(f"{n_eco} 个 ecosystem 只有 {n_lab} 处 labels 声明")
+
+    want = _requested_labels(text)
+    if not want:
+        return notes
+
+    slug = _origin_slug(repo)
+    if slug is None:
+        return notes
+    for name in sorted(want):
+        try:
+            proc = subprocess.run(
+                ["gh", "api", f"repos/{slug}/labels/{name}", "--jq", ".name"],
+                capture_output=True, text=True, timeout=60,
+            )
+        except Exception:
+            return notes  # gh 缺失或超时：无法核实，不判红
+        if proc.returncode != 0:
+            # 只在确认 404 时判失败，其它错误（限流、断网）视为无法核实。
+            if "HTTP 404" in proc.stderr or "Not Found" in proc.stderr:
+                notes.append(f"标签 {name} 在 {slug} 不存在（GitHub 静默跳过，PR 会裸标签）")
+            return notes
+    return notes
+
+
 def check_dependabot(repo: str, cfg: dict) -> tuple[bool, list[str]]:
     text = read(repo, ".github/dependabot.yml")
     if text is None:
@@ -128,6 +199,7 @@ def check_dependabot(repo: str, cfg: dict) -> tuple[bool, list[str]]:
         notes.append("未设 open-pull-requests-limit（默认 5，一周能攒满后静默停止提 PR）")
     if "groups" not in text:
         notes.append("未配 groups：patch/minor 会各自开一个 PR，一周能被刷屏")
+    notes += check_dependabot_labels(repo, text)
     return (not notes), notes
 
 
