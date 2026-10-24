@@ -68,9 +68,14 @@ linters:
     misspell:
       # eles / Eles 是 elevation（海拔）在 GPX 处理里的既有缩写，同时是数据库列名，
       # 改不了也不该改。misspell 会把它当成 eels（鳗鱼）的拼写错误。
+      # auther / Auther 是 ntfy 上游的接口名，fork 里重命名会与上游反复冲突。
+      # clas 是 ntfy 测试里 base64 邮件正文恰好断在 "class" 中间产生的切词。
       ignore-rules:
         - eles
         - Eles
+        - auther
+        - Auther
+        - clas
     staticcheck:
       checks:
         # all 里包含 SA（缺陷）、S（简化）、ST（命名风格）、QF（快速修复建议）。
