@@ -69,6 +69,7 @@ REPOS: dict[str, dict] = {
     # siwu 的 compose 里另有一个 browser profile（headless-shell），
     # 但 siwu 自身仍是装配式单二进制镜像，基线按主服务判。
     "siwu": dict(df=["Dockerfile"], compose="docker-compose.yml"),
+    "youlv": dict(df=["Dockerfile"], compose="docker-compose.yml"),
     # whoami 无 compose：单容器部署，装配式 Dockerfile 直起，属已登记变体
     "whoami": dict(df=["Dockerfile"], compose=None),
 }
@@ -79,6 +80,7 @@ REPOS.pop("yuexi-extra", None)  # 保持配置表干净：没有 Dockerfile 的�
 SQLITE_APPS = {
     "shenshi", "feixi", "chaxin", "guanfu", "liuxia", "yuexi",
     "qiansi", "mujian", "diarum", "huozhi", "bili-history", "siwu",
+    "youlv",
 }
 
 # 最后的 libc? 不需要 —— 只看最后一个 stage（运行时）的 FROM / USER

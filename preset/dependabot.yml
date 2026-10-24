@@ -64,8 +64,18 @@ updates:
     # 本仓群统一只走 svelte-check 的默认路径：不装 @typescript/native 别名、不用 --tsgo ——
     # 实测 --tsgo 在 huozhi 会因为 #lib/* 解析不到而把类型程序搞成空的，照样输出 0 errors，
     # 而换来的只是 0.4~1.6 秒。理由与实测见 docs/dependabot.md 第六节
+    #
+    # eslint 的 major 同样不提 PR：eslint-plugin-react@7 的 peer 只到 eslint ^9.7，
+    # 在 ESLint 10 上加载 react/display-name 会直接抛
+    # "contextOrFilename.getFilename is not a function"（规则 context API 变更），
+    # 于是 lint 阶段整体崩掉 —— 报错信息里看不出是 eslint 大版本的问题。
+    # 实测见 youlv 仓库 2026-10-25 的 dependabot PR（CI 直接红在加载规则上）。
     ignore:
       - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
         update-types: ["version-update:semver-major"]
 
   # ── Docker 基础镜像 ─────────────────────────────────────────────────

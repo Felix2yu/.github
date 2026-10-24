@@ -49,6 +49,7 @@ REPOS: dict[str, dict] = {
     "ntfy": dict(lang="go", web="web"),
     "zhichang": dict(lang="go", web="web"),
     "siwu": dict(lang="go", web="web"),
+    "youlv": dict(lang="go", web="web"),
     "WebMonitor": dict(lang="python", web="frontend"),
     # 纯 Python：reusable-test.yml 的契约是「go-dir 留空则只跑 web-dir」，
     # 本仓既无 Go 也无前端，硬接只会得到一个什么都不做的绿灯。

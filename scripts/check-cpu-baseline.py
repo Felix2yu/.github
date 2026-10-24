@@ -86,6 +86,9 @@ REPOS: dict[str, dict] = {
     # 4043/496 为 2026-10-22 本机 linux/amd64 实测值（objdump），与 shenshi 等同组，
     # 即只含 Go 标准库的门控型 AVX2/AVX-512 汇编。
     "siwu": dict(go_dir=".", main_pkg="./cmd/siwu", cgo="off", baseline=(4043, 496)),
+    # 游履：modernc.org/sqlite 纯 Go 驱动，CGO_ENABLED=0。
+    # 3523/496 为 2026-10-25 本机 linux/amd64 实测值，与 guanfu/bili-dl 同值。
+    "youlv": dict(go_dir=".", main_pkg="./cmd/youlv", cgo="off", baseline=(3523, 496)),
     "tuqie": dict(
         go_dir=".", main_pkg="./cmd/tuqie", cgo="off", tags="-tags nodynamic",
         baseline=(6965, 823),
