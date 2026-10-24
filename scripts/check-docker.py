@@ -78,7 +78,7 @@ REPOS.pop("yuexi-extra", None)  # 保持配置表干净：没有 Dockerfile 的�
 # 写绝对路径的 BACKUP_SQLITE_CMD（/app 布局下裸名 exit 127），漏声明 = 静默漏备份。
 SQLITE_APPS = {
     "shenshi", "feixi", "chaxin", "guanfu", "liuxia", "yuexi",
-    "qiansi", "mujian", "diarum", "huozhi", "bili-history",
+    "qiansi", "mujian", "diarum", "huozhi", "bili-history", "siwu",
 }
 
 # 最后的 libc? 不需要 —— 只看最后一个 stage（运行时）的 FROM / USER
@@ -95,6 +95,9 @@ BACKUP_EXT_RE = re.compile(r"""BACKUP_SQLITE_EXT["']?\s*[:=]\s*["']?([^\s"'`（�
 SQLITE_LABEL_RE = re.compile(r"""backup\.provider["']?\s*[:=]\s*["']?sqlite""")
 EXT_VALUE_RE = re.compile(r"^[A-Za-z0-9]{1,16}$")
 EXT_TAIL_RE = re.compile(r"^\s+[A-Za-z0-9_./:=+\-]")
+# 列表式 `- KEY="value"` 的引号会存进变量值（YAML 只剥外层包裹的引号），旧版工具把
+# 整串当命令名 exit 127。只认 `=` 分隔：映射式 `KEY: "value"` 的引号是 YAML 语法，安全。
+BACKUP_QUOTED_RE = re.compile(r"""(BACKUP_SQLITE_(?:CMD|EXT|USER))\s*=\s*["']""")
 
 
 # ---------------------------------------------------------------- 工具
@@ -361,11 +364,18 @@ def check_backup_sqlite(repo: str, compose: str) -> tuple[bool | None, list[str]
 
     cmds: list[tuple[str, str]] = []
     exts: list[tuple[str, str, str]] = []
+    quoted: list[str] = []
     labeled = False
     for origin, text in sources:
         cmds += [(origin, m.group(1).strip()) for m in BACKUP_CMD_RE.finditer(text)]
         exts += [(origin, m.group(1), m.group(2)) for m in BACKUP_EXT_RE.finditer(text)]
         labeled |= bool(SQLITE_LABEL_RE.search(text))
+        if origin == "compose":
+            # 行内注释里的反例（「不要写成 KEY="value"」）不是声明，先去掉尾注释
+            for line in text.splitlines():
+                m = BACKUP_QUOTED_RE.search(re.sub(r"\s+#.*$", "", line))
+                if m:
+                    quoted.append(m.group(1))
 
     if not cmds and not labeled and repo not in SQLITE_APPS:
         return None, []
@@ -397,6 +407,12 @@ def check_backup_sqlite(repo: str, compose: str) -> tuple[bool | None, list[str]
                 notes.append(f"[{origin}] 命令产出 zip（`--format zip`）但未声明 "
                              "BACKUP_SQLITE_EXT=zip——工具按 db 魔数校验 zip 产物，"
                              "校验失败、产物丢弃")
+
+    if quoted:
+        ok = False
+        notes.append("compose 列表式 " + "、".join(sorted({f"`{v}=…`" for v in quoted}))
+                     + " 的引号会存进变量值——改裸值 `- KEY=value` 或映射式 `KEY: value`"
+                     "（工具现会剥最外层引号兜底，但契约要求裸值，旧版本会整串当命令名 127）")
 
     for origin, ext, tail in exts:
         if EXT_TAIL_RE.match(tail):

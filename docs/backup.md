@@ -48,12 +48,20 @@ dump 通道，唯独 SQLite 是**应用内嵌的文件型数据库**：没有服
 **绝对路径是硬性要求，不是保守**。容器布局标准（见
 [`docker.md`](docker.md) 第二节）把二进制放在 `/app/<app>`，`/app` 不在 `PATH` 上，
 裸名 `sh -c '<app> backup'` 实测全舰队十一个容器一律 exit 127。所以本舰队的
-声明一律写：
+声明一律写**裸值**：
 
 ```yaml
 environment:
-  - BACKUP_SQLITE_CMD=/app/<app> backup
+  - BACKUP_SQLITE_CMD=/app/<app> backup     # 列表式裸值
+  # 或映射式（引号是 YAML 语法，剥掉后值仍是裸的）
+  BACKUP_SQLITE_CMD: "/app/<app> backup"
 ```
+
+**不要写成 `- BACKUP_SQLITE_CMD="/app/<app> backup"`**：列表式里引号不是 YAML
+语法而是值的一部分，存进环境变量的值会带着引号，`sh -c` 把 `"/app/<app> backup"`
+整串（含空格）当单个命令名，报 command not found。整条 KEY=VALUE 加外层引号
+（`- "BACKUP_SQLITE_CMD=/app/<app> backup"`）是安全的——YAML 剥掉的是外层包裹。
+工具读取时会剥掉最外层成对引号兜底（见第三节），但判据仍按裸值口径检查。
 
 镜像名推导在 `/app` 布局下不成立；二进制名与镜像名不同的（huozhi 的
 `huozhi-server` vs `huozhi`）即使上了 PATH 也会猜错。**结论：每个接入容器都
@@ -67,9 +75,12 @@ environment:
 
 | 变量 | 默认 | 语义 |
 |------|------|------|
-| `BACKUP_SQLITE_CMD` | 镜像名推导 | 自导出命令（空格分隔，经容器内 `sh -c` 执行）；设置即视为声明 sqlite 容器 |
-| `BACKUP_SQLITE_EXT` | `db` | 产物扩展名；应用输出「数据 + 附件」的 zip 时设为 `zip` |
-| `BACKUP_SQLITE_USER` | 由 `PUID`/`PGID` 推导 | exec 导出命令的身份（`1000:1000` 形式）；两者都缺失时沿用容器默认用户 |
+| `BACKUP_SQLITE_CMD` | 镜像名推导 | 自导出命令（空格分隔，经容器内 `sh -c` 执行）；设置即视为声明 sqlite 容器。**值裸写**——引号包裹的值曾被整串当命令名（exit 127），现在工具读取时剥掉最外层成对引号兜底，但别依赖兜底 |
+| `BACKUP_SQLITE_EXT` | `db` | 产物扩展名；应用输出「数据 + 附件」的 zip 时设为 `zip`。同样接受引号包裹并剥壳 |
+| `BACKUP_SQLITE_USER` | 由 `PUID`/`PGID` 推导 | exec 导出命令的身份（`1000:1000` 形式）；两者都缺失时沿用容器默认用户。同样剥壳；`PUID`/`PGID` 也一样 |
+
+三个变量与 `PUID`/`PGID` 的读取口径统一：**去空白 + 剥最外层成对引号**（`"…"`、`'…'`）。
+引号不成对则原样保留——那不是包裹，是值的内容。
 
 **扩展名必须与产物一致**。工具按扩展名选校验器：`db` 查 `SQLite format 3\0`
 魔数，`zip` 查 `PK\x03\x04` 魔数。应用输出 zip 却按默认 `db` 校验——校验失败、
@@ -110,6 +121,7 @@ pg / mysql 的 dump 只读网络，用默认用户无所谓；SQLite 的导出�
 |------|------|
 | 命令绝对路径 | `BACKUP_SQLITE_CMD` 以 `/` 开头；裸名在 `/app` 布局下必然 127 |
 | 命令以 `backup` 结尾（或含 `backup` 子命令） | 防手滑写成 `dump` / `export` 等工具读不出的形态 |
+| 值不带引号 | compose 列表式 `KEY="value"` 的引号会存进变量值（旧版工具整串当命令名 127）；改裸值或映射式 |
 | `BACKUP_SQLITE_EXT` 合法 | 只允许字母数字、≤16 位；`zip` 与 `db` 之外的值提示人工确认 |
 | 标签与命令的一致性 | 打了 `backup.provider=sqlite` 标签却无 `BACKUP_SQLITE_CMD` 的容器在 `/app` 布局下备份必然失败，报出来 |
 
