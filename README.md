@@ -18,6 +18,7 @@ Felix2yu/.github/
 ├── docs/                      跨仓库契约：写进任一项目都只有那一个项目看得到
 │   ├── PWA.md                 PWA 实现规范（图标 / head / manifest / SW）
 │   ├── docker.md              容器镜像（装配式 / 非 root / 基镜像 pin / 探活）
+│   ├── backup.md              SQLite 备份契约（应用自导出 / BACKUP_SQLITE_* / exec 身份）
 │   ├── repo-baseline.md       仓库基线（README / LICENSE / CI / 三件套 / 忽略规则）
 │   ├── dependabot.md          依赖更新配置与合并策略
 │   ├── frontend.md            前端工具链契约（Node / pnpm / 产物位置）

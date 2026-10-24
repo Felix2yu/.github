@@ -95,7 +95,8 @@ CMD ["/app/app", "-addr", ":8080"]          # ENTRYPOINT 由基镜提供（降�
 挂载点和看镜像内容都对得上，不用在 `/data` 与 `/app/data` 之间逐仓库回忆。代价要写明白：
 `/app` 不在 `PATH` 上，所以 `CMD` 和 `docker exec` 都必须写绝对路径，任何依赖裸名解析的
 机制（例如 docker-db-auto-backup 按镜像名推导 `<bin> backup`）在这种布局下不成立，容器要
-显式声明绝对命令（`BACKUP_SQLITE_CMD=/app/app backup`）。
+显式声明绝对命令（`BACKUP_SQLITE_CMD=/app/app backup`）。备份声明的完整契约见
+[`backup.md`](backup.md)。
 
 **为什么不让各仓库各写一份 entrypoint**：这 8 份脚本已经分叉出不同的默认值
 （`1000:100` vs `1000:1000`）、不同的 chown 目标（`/data` vs `/app/data`）、

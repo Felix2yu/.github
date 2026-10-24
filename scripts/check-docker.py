@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""按 docs/docker.md 的契约，自检工作区内各仓库的容器镜像。
+"""按 docs/docker.md 与 docs/backup.md 的契约，自检工作区内各仓库的容器镜像。
 
 为什么需要它：容器里的坑有一个共同点——本地跑得好好的，推上去才炸。
 以 root 运行、`:latest` 裸标签、`.dockerignore` 排除了 CI 产物、`HEALTHCHECK`
 探在需要鉴权的端点上——这些全都不会让 `docker build` 失败，CI 全程是绿的，
 上线几周后才以「容器反复 unhealthy」「备份恢复后写不进数据库」的形式冒出来。
 脚本把它们变成一条命令能看完的东西。
+
+SQLite 自导出声明（docs/backup.md）同理：应用实现了 `backup` 子命令、compose 却
+漏写 `BACKUP_SQLITE_CMD`，备份工具根本看不到这个容器——不报错、不告警，只是
+每天少备份一个库。声明写错（裸名命令、EXT 与产物不符）则要到运行时才以
+「产物丢弃、本轮 failed」的形式暴露。声明层面的对错在这里一次看完。
 
 为什么豁免要显式登记：不是所有容器都该降权。要读宿主 docker.sock 做备份的
 容器降权后连备份源都读不到——这种时候「符合规范」就是错的。与其让脚本报红
@@ -69,9 +74,27 @@ REPOS: dict[str, dict] = {
 }
 REPOS.pop("yuexi-extra", None)  # 保持配置表干净：没有 Dockerfile 的仓库不登记
 
+# SQLite 应用自导出的接入方（契约见 docs/backup.md）：这类应用必须在部署声明里
+# 写绝对路径的 BACKUP_SQLITE_CMD（/app 布局下裸名 exit 127），漏声明 = 静默漏备份。
+SQLITE_APPS = {
+    "shenshi", "feixi", "chaxin", "guanfu", "liuxia", "yuexi",
+    "qiansi", "mujian", "diarum", "huozhi", "bili-history",
+}
+
 # 最后的 libc? 不需要 —— 只看最后一个 stage（运行时）的 FROM / USER
 COPY_RE = re.compile(r"^\s*(?:COPY|ADD)\s+", re.I)
 FROM_RE = re.compile(r"^\s*FROM\s+", re.I | re.M)
+
+# BACKUP_SQLITE_* 声明：compose 里两种写法都认（映射式 `KEY: value` 与列表式 `KEY=value`）。
+# 值只取 ASCII 命令字符（含 `<>`：README 占位符 `/app/<app> backup` 是散文而非声明，
+# 截断它反而会误报「不含 backup」）——README 里 `BACKUP_SQLITE_EXT=zip`（否则工具按
+# `.db` 魔数……）这类散文在反引号后还有整句中文，值匹配必须在反引号/中文处停住。
+BACKUP_CMD_RE = re.compile(r"""BACKUP_SQLITE_CMD["']?\s*[:=]\s*["']?([A-Za-z0-9_./:=+\-<> ]+[A-Za-z0-9_./:=+\-<>])""")
+# EXT 值不含空格，捕获首个 token 后看尾段：尾段还有 ASCII 词就说明整个值带空格/非法
+BACKUP_EXT_RE = re.compile(r"""BACKUP_SQLITE_EXT["']?\s*[:=]\s*["']?([^\s"'`（，。、]+)([^\n]*)""")
+SQLITE_LABEL_RE = re.compile(r"""backup\.provider["']?\s*[:=]\s*["']?sqlite""")
+EXT_VALUE_RE = re.compile(r"^[A-Za-z0-9]{1,16}$")
+EXT_TAIL_RE = re.compile(r"^\s+[A-Za-z0-9_./:=+\-]")
 
 
 # ---------------------------------------------------------------- 工具
@@ -311,6 +334,86 @@ def check_execform(lines: list[str]) -> tuple[bool, list[str]]:
     return (not notes), notes
 
 
+def _active_lines(text: str) -> str:
+    """去掉整行注释——compose 里注释掉的示例不当作声明，但反过来说，
+    声明被注释掉（如 huozhi 的可选 EXT=zip）也算「没声明」，这正是期望。"""
+    return "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+
+
+def check_backup_sqlite(repo: str, compose: str) -> tuple[bool | None, list[str]]:
+    """SQLite 自导出声明（docs/backup.md）。
+
+    返回 None 表示本仓与 SQLite 备份无关（表里打 `--`），True/False 才计入统计。
+    compose 缺失或没声明时回退 README——diarum / yuexi 的声明在 docker run 示例里；
+    回退只对已登记的接入方做，避免把工具仓 README 里的契约散文当成声明去校验。
+    """
+    notes: list[str] = []
+    ok = True
+    sources: list[tuple[str, str]] = []
+    if compose:
+        sources.append(("compose", _active_lines(compose)))
+
+    seen_cmd = any(BACKUP_CMD_RE.search(t) for _, t in sources)
+    if not seen_cmd and repo in SQLITE_APPS:
+        readme = read(repo, "README.md") or ""
+        if readme:
+            sources.append(("README", _active_lines(readme)))
+
+    cmds: list[tuple[str, str]] = []
+    exts: list[tuple[str, str, str]] = []
+    labeled = False
+    for origin, text in sources:
+        cmds += [(origin, m.group(1).strip()) for m in BACKUP_CMD_RE.finditer(text)]
+        exts += [(origin, m.group(1), m.group(2)) for m in BACKUP_EXT_RE.finditer(text)]
+        labeled |= bool(SQLITE_LABEL_RE.search(text))
+
+    if not cmds and not labeled and repo not in SQLITE_APPS:
+        return None, []
+    if not cmds:
+        ok = False
+        if labeled:
+            notes.append("打了 backup.provider=sqlite 标签但无 BACKUP_SQLITE_CMD——"
+                         "标签只解锁镜像名推导，/app 布局下推导出的裸名必然 127，备份仍会失败")
+        else:
+            notes.append("未见 BACKUP_SQLITE_CMD 声明——备份工具看不到这个容器，会静默漏备份"
+                         "（/app 布局下镜像名推导不成立，必须显式声明绝对路径命令）")
+
+    for origin, cmd in cmds:
+        toks = cmd.split()
+        if not toks:
+            continue
+        if not toks[0].startswith("/"):
+            ok = False
+            notes.append(f"[{origin}] BACKUP_SQLITE_CMD `{cmd}` 非绝对路径——"
+                         "/app 不在 PATH，sh -c 解析不到（裸名实测 exit 127）")
+        if "backup" not in toks:
+            ok = False
+            notes.append(f"[{origin}] BACKUP_SQLITE_CMD `{cmd}` 不含 `backup` 子命令——"
+                         "与应用侧约定不符，工具按约定执行会直接失败")
+        if "--format" in toks:
+            i = toks.index("--format")
+            if i + 1 < len(toks) and toks[i + 1] == "zip" and not any(e == "zip" for _, e, _ in exts):
+                ok = False
+                notes.append(f"[{origin}] 命令产出 zip（`--format zip`）但未声明 "
+                             "BACKUP_SQLITE_EXT=zip——工具按 db 魔数校验 zip 产物，"
+                             "校验失败、产物丢弃")
+
+    for origin, ext, tail in exts:
+        if EXT_TAIL_RE.match(tail):
+            # 值带空格（`EXT=my backup`）：首 token 看着合法，整个值其实非法
+            ok = False
+            notes.append(f"[{origin}] BACKUP_SQLITE_EXT 值含空白（`{ext}…`），"
+                         "非法（只允许字母数字、≤16 位）")
+        elif not EXT_VALUE_RE.match(ext):
+            ok = False
+            notes.append(f"[{origin}] BACKUP_SQLITE_EXT `{ext}` 非法（只允许字母数字、≤16 位）")
+        elif ext not in ("db", "zip"):
+            notes.append(f"[{origin}] 软提示：BACKUP_SQLITE_EXT={ext} 不是 db/zip，"
+                         "工具按该扩展名查魔数，确认产物格式相符")
+
+    return ok, notes
+
+
 # ---------------------------------------------------------------- 主流程
 
 def main() -> int:
@@ -318,14 +421,14 @@ def main() -> int:
     for u in [t for t in targets if t not in REPOS]:
         print(f"[warn] 未登记的仓库 {u}，跳过（如需纳入请加进 REPOS）")
 
-    rows: list[tuple[str, str, str, str, str, str, list[str]]] = []
+    rows: list[tuple[str, str, str, str, str, str, str, list[str]]] = []
     for repo in targets:
         if repo not in REPOS:
             continue
         cfg = REPOS[repo]
         base = WORKSPACE / repo
         if not base.is_dir():
-            rows.append((repo, "--", "--", "--", "--", "--", ["工作区内不存在该目录"]))
+            rows.append((repo, "--", "--", "--", "--", "--", "--", ["工作区内不存在该目录"]))
             continue
 
         texts = [(d, read(repo, d) or "") for d in cfg["df"]]
@@ -361,31 +464,33 @@ def main() -> int:
             health_notes += [f"[{d}] {n}" for n in tzn]
 
         root_ok = not any("root 运行（" in n for n in user_notes)
+        b_ok, b_notes = check_backup_sqlite(repo, compose)
 
-        notes = pin_notes + ctx_notes + form_notes + user_notes + health_notes
+        notes = pin_notes + ctx_notes + form_notes + user_notes + health_notes + b_notes
         rows.append((repo, mark(pin_ok), mark(ctx_ok), mark(root_ok),
-                     mark(health_ok), mark(form_ok), notes))
+                     mark(health_ok), mark(form_ok),
+                     "--" if b_ok is None else mark(b_ok), notes))
 
-    print("=" * 104)
-    print("容器镜像自检（契约见 docs/docker.md）")
-    print("=" * 104)
-    print(f"{'仓库':<24}{'FROM pin':<10}{'上下文':<10}{'非root':<10}{'探活':<8}{'exec form':<10}")
-    print("-" * 104)
-    for repo, p, c, u, h, f, _ in rows:
-        print(f"{repo:<24}{p:<10}{c:<10}{u:<10}{h:<8}{f:<10}")
+    print("=" * 114)
+    print("容器镜像自检（契约见 docs/docker.md / docs/backup.md）")
+    print("=" * 114)
+    print(f"{'仓库':<24}{'FROM pin':<10}{'上下文':<10}{'非root':<10}{'探活':<8}{'exec form':<10}{'备份声明':<10}")
+    print("-" * 114)
+    for repo, p, c, u, h, f, b, _ in rows:
+        print(f"{repo:<24}{p:<10}{c:<10}{u:<10}{h:<8}{f:<10}{b:<10}")
 
     print("\n明细")
-    print("-" * 104)
-    for repo, p, c, u, h, f, notes in rows:
+    print("-" * 114)
+    for repo, p, c, u, h, f, b, notes in rows:
         print(f"\n{repo}")
         for n in notes:
             print(f"    - {n}")
 
     total = len(rows)
-    failed = sum(1 for r in rows if "NG" in r[1:6])
-    print("\n" + "-" * 104)
+    failed = sum(1 for r in rows if "NG" in r[1:7])
+    print("\n" + "-" * 114)
     print(f"共 {total} 个仓库，{total - failed} 个全绿，{failed} 个待修。")
-    print("「非root」列带「已登记例外」的属有意保留 root，不是待修项。")
+    print("「非root」列带「已登记例外」的属有意保留 root，不是待修项；「备份声明」列 `--` 表示与 SQLite 备份无关。")
     return 1 if failed else 0
 
 
