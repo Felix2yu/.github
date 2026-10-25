@@ -114,6 +114,20 @@ CMD ["/app/app", "-addr", ":8080"]          # ENTRYPOINT 由基镜提供（降�
 四个细节由基镜统一保证：`chown -R` 覆盖整棵数据目录树、非 root 启动（`--user`）时
 短路直接运行、`exec` 替换 PID 1（信号可达，`docker stop` 不超时）、默认 `1000:1000`。
 
+> **`APP_DATA_DIR` 与应用自己的数据目录变量是两个消费者，缺一不可。**
+> 基镜只看 `APP_DATA_DIR`，应用只看自己的（`YOULV_DATA_DIR`、`SHENSHI_DATA_DIR` 之类）。
+> 只写后者时入口会去 chown 基镜默认的 `/data`——镜像里没有这个目录，
+> `[ -d ] || continue` 直接跳过——于是挂载卷保持 root 属主，降权后的进程写不进去：
+>
+> ```
+> 读取配置失败: 创建目录 /app/data/tmp/imports 失败: mkdir /app/data/tmp: permission denied
+> ```
+>
+> 容器起动即退出，但 `docker build` 成功、CI 全绿、镜像照常推送。2026-10-25 youlv
+> 就这么静默上线了一版不可用的镜像，事后靠 `docker run` 才发现。两道防线已补上：
+> `scripts/check-docker.py` 的「数据目录」列做静态检查，各仓 CI 的 smoke 任务把
+> 镜像真跑起来并断言 `PID 1 uid=1000` 与库文件已创建。
+
 > 各仓库不再有 `scripts/docker-entrypoint.sh`。`huozhi` 是唯一例外：它要生成并持久化
 > JWT secret，保留了自己的 entrypoint，但在最后 `exec /usr/local/bin/docker-entrypoint.sh …`
 > 调用基镜的降权入口。

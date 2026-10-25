@@ -285,6 +285,65 @@ def check_nonroot(repo: str, cfg: dict, lines: list[str], text: str,
     return False, ["以 root 运行（未见 USER / su-exec / distroless nonroot）"]
 
 
+def check_data_dir(lines: list[str]) -> tuple[bool | None, list[str]]:
+    """公共基镜的降权入口靠 `APP_DATA_DIR` 决定 chown 哪个目录（docs/docker.md 方案 C）。
+
+    这条检查是 2026-10-25 补的：youlv 只写了应用自己的 `YOULV_DATA_DIR=/app/data`，
+    没写基镜读的 `APP_DATA_DIR`。入口于是 chown 基镜默认的 `/data`（镜像里不存在，
+    `[ -d ] || continue` 直接跳过），`/app/data` 保持 root 属主，降权到 1000:1000 的
+    进程连 `/app/data/tmp` 都建不出来：
+
+        读取配置失败: 创建目录 /app/data/tmp/imports 失败: mkdir /app/data/tmp: permission denied
+
+    容器起动即退出——但 `docker build` 成功、CI 全绿，缺陷静默上线到镜像仓库。
+    静态检查能覆盖这一类「两个变量各喂一个消费者」的漏写。
+
+    返回 None 表示不是公共基镜的仓库（降权方式不是这套，不适用）。
+    """
+    runtime = last_stage_lines(lines)
+    if not any(re.match(r"^\s*FROM\s+\S*ghcr\.io/felix2yu/base[:@]", l, re.I) for l in runtime):
+        return None, []
+
+    app_dirs: list[str] = []
+    for line in runtime:
+        m = re.match(r"^\s*ENV\s+(.+)$", line, re.I)
+        if not m:
+            continue
+        # 一条 ENV 可写多个赋值：`ENV A=1 APP_DATA_DIR=/x`，也可能跨行续写（已合并）
+        for tok in re.finditer(r"""APP_DATA_DIR=(?:"([^"]*)"|'([^']*)'|(\S+))""", m.group(1)):
+            val = next(g for g in tok.groups() if g is not None)
+            app_dirs += [p for p in val.split() if p]
+
+    volumes: list[str] = []
+    for line in runtime:
+        m = re.match(r"^\s*VOLUME\s+(.+)$", line, re.I)
+        if not m:
+            continue
+        body = m.group(1).strip()
+        if body.startswith("["):
+            volumes += [v.strip().strip('"').strip("'") for v in body.strip("[]").split(",")]
+        else:
+            volumes += body.split()
+    volumes = [v for v in volumes if v.startswith("/")]
+
+    notes: list[str] = []
+    ok = True
+    if not app_dirs:
+        ok = False
+        notes.append(
+            "未声明 `ENV APP_DATA_DIR=`——基镜入口只 chown 默认的 /data，"
+            "挂载卷会保持 root 属主，降权后的进程写不进去（容器起动即退出）")
+    for v in volumes:
+        if app_dirs and v not in app_dirs:
+            ok = False
+            notes.append(f"VOLUME `{v}` 不在 APP_DATA_DIR（{' '.join(app_dirs)}）里——"
+                         "该挂载目录不会被 chown，降权后不可写")
+    if ok and app_dirs:
+        notes.append(f"数据目录：APP_DATA_DIR={' '.join(app_dirs)}"
+                     + (f"（覆盖 VOLUME {' '.join(volumes)}）" if volumes else ""))
+    return ok, notes
+
+
 def check_health(cfg: dict, text: str, compose: str) -> tuple[bool, list[str]]:
     if "HEALTHCHECK" in text:
         return True, ["探活：Dockerfile HEALTHCHECK"]
@@ -439,7 +498,7 @@ def main() -> int:
     for u in [t for t in targets if t not in REPOS]:
         print(f"[warn] 未登记的仓库 {u}，跳过（如需纳入请加进 REPOS）")
 
-    rows: list[tuple[str, str, str, str, str, str, str, list[str]]] = []
+    rows: list[tuple[str, str, str, str, str, str, str, str, list[str]]] = []
     for repo in targets:
         if repo not in REPOS:
             continue
@@ -454,10 +513,12 @@ def main() -> int:
         user_notes: list[str] = []
         pin_ok = form_ok = ctx_ok = True
         health_ok = False
+        data_ok: bool | None = None
         pin_notes: list[str] = []
         ctx_notes: list[str] = []
         form_notes: list[str] = []
         health_notes: list[str] = []
+        data_notes: list[str] = []
 
         for d, text in texts:
             if not text:
@@ -480,35 +541,42 @@ def main() -> int:
             user_notes += [f"[{d}] {n}" for n in un]
             _, tzn = check_tz(text)
             health_notes += [f"[{d}] {n}" for n in tzn]
+            dd, dn = check_data_dir(lines)
+            if dd is not None:                 # None = 不是公共基镜的仓库，不适用
+                data_ok = dd if data_ok is None else (data_ok and dd)
+            data_notes += [f"[{d}] {n}" for n in dn]
 
         root_ok = not any("root 运行（" in n for n in user_notes)
         b_ok, b_notes = check_backup_sqlite(repo, compose)
 
-        notes = pin_notes + ctx_notes + form_notes + user_notes + health_notes + b_notes
+        notes = (pin_notes + ctx_notes + form_notes + user_notes
+                 + health_notes + data_notes + b_notes)
         rows.append((repo, mark(pin_ok), mark(ctx_ok), mark(root_ok),
                      mark(health_ok), mark(form_ok),
+                     "--" if data_ok is None else mark(data_ok),
                      "--" if b_ok is None else mark(b_ok), notes))
 
-    print("=" * 114)
+    print("=" * 124)
     print("容器镜像自检（契约见 docs/docker.md / docs/backup.md）")
-    print("=" * 114)
-    print(f"{'仓库':<24}{'FROM pin':<10}{'上下文':<10}{'非root':<10}{'探活':<8}{'exec form':<10}{'备份声明':<10}")
-    print("-" * 114)
-    for repo, p, c, u, h, f, b, _ in rows:
-        print(f"{repo:<24}{p:<10}{c:<10}{u:<10}{h:<8}{f:<10}{b:<10}")
+    print("=" * 124)
+    print(f"{'仓库':<24}{'FROM pin':<10}{'上下文':<10}{'非root':<10}{'探活':<8}{'exec form':<10}{'数据目录':<10}{'备份声明':<10}")
+    print("-" * 124)
+    for repo, p, c, u, h, f, dd, b, _ in rows:
+        print(f"{repo:<24}{p:<10}{c:<10}{u:<10}{h:<8}{f:<10}{dd:<10}{b:<10}")
 
     print("\n明细")
     print("-" * 114)
-    for repo, p, c, u, h, f, b, notes in rows:
+    for repo, p, c, u, h, f, dd, b, notes in rows:
         print(f"\n{repo}")
         for n in notes:
             print(f"    - {n}")
 
     total = len(rows)
-    failed = sum(1 for r in rows if "NG" in r[1:7])
+    failed = sum(1 for r in rows if "NG" in r[1:8])
     print("\n" + "-" * 114)
     print(f"共 {total} 个仓库，{total - failed} 个全绿，{failed} 个待修。")
-    print("「非root」列带「已登记例外」的属有意保留 root，不是待修项；「备份声明」列 `--` 表示与 SQLite 备份无关。")
+    print("「非root」列带「已登记例外」的属有意保留 root，不是待修项；"
+          "「数据目录」「备份声明」列 `--` 表示不适用。")
     return 1 if failed else 0
 
 
