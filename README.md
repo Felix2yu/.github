@@ -464,10 +464,13 @@ manifest 字段、SW 行为），写进任何一个项目里都只有那一个�
 - [ ] 主题色在浅/深两种外观下都正确（A 案两条 / B 案单条 + JS 覆盖，别混用）
 - [ ] 真实浏览器验证：DevTools → Application → Manifest 无警告 / Service Workers 已激活（登记了 `sw_none` 的仓库只验前者，另需确认安装入口真的出现）
 
-> 脚本的 Pillow 是**可选**依赖：没装也能跑完，只是跳过位图深度校验。
-> 想校验 maskable 是否满幅透明、主体是否居中，再 `pip install pillow`。
+> 脚本的 Pillow 是**可选**依赖：没装也能跑完，只是跳过位图深度校验，此时资产列会标 `*`
+> 提醒「这一列没验到底」。透明底图标在浏览器里看不出来，只在 iOS 主屏渲染成黑底，
+> 所以**装了 Pillow 再跑一次**才算自检完成：`python3 -m venv /tmp/.pwa-venv && /tmp/.pwa-venv/bin/pip install pillow`。
 
-**现状**：登记 13 个 Web 应用，12 个全绿（`python3 scripts/check-pwa.py`）；mujian 的 SW 未见离线兜底待修。
+**现状**：登记 16 个 Web 应用，**16 个全绿**（`python3 scripts/check-pwa.py`，已装 Pillow 实测）。
+本轮收口三条：观复补满幅 maskable 并接 manifest、司寤补 head iOS meta 与 manifest 四字段、牵丝重出不透明的 apple-touch。
+司寤与观复按 §四登记 `sw_none`（自托管面板离线无内容可服务）。
 飞檄的 SW 只 precache 壳与静态资源、数据接口不缓存也不兜底（满足 §四但不承诺离线，见 §五脚注）。
 RSSRob / WebMonitor / QBHive / whoami / healthchecks 明确不做 PWA，不在范围内。
 
