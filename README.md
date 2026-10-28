@@ -258,16 +258,20 @@ secrets：`CODECOV_TOKEN`（`required: false`）
 | `debian-13` | `debian:13-slim` | 同上，降权用 gosu（glibc，供 CGO 的 mujian） |
 
 定义在 `docker/base/`，由 `.github/workflows/base-image.yml` 构建：双 runner 出 amd64/arm64
-→ `imagetools create` 合并 manifest → 向 `notify` 矩阵里的每个应用仓库发
+→ `imagetools create` 合并 manifest → 向 `docker/base-repos.txt` 列出的每个应用仓库发
 `repository_dispatch(base-image-updated)`。应用 `ci.yml` 加 `on.repository_dispatch`
 即即时重建；各应用原有的每周 `schedule` 是兜底。
+
+> **什么改动会触发基镜重建**：只有 `docker/base/**` 下的构建输入（Dockerfile / entrypoint）。
+> 目录里的 README 和这份订阅清单都被排除在外 —— 登记新仓库不该顺手重建一次镜像再向全量
+> 仓库发一轮 dispatch（2026-10-18 与 10-24 各踩过一次，每次白跑 4 个 build job + 17 次下游重建）。
 
 > **为什么不 pin digest**：基镜一变就主动触发重建，`pull: true` 会重新解析 tag，各应用
 > 不必手改 digest。这也是唯一豁免 digest 的 `FROM`（见 [docs/docker.md](docs/docker.md) 第三节）。
 >
 > **需要的 secret**：`DISPATCH_TOKEN` —— 一个对各应用仓库有写权限的 token：
-> fine-grained PAT 用 `Contents: Read and write`（Repository access 要覆盖 `notify`
-> 矩阵里的全部仓库），或 classic PAT 带 `repo` scope。未配置时 `notify` 只告警不失败，
+> fine-grained PAT 用 `Contents: Read and write`（Repository access 要覆盖
+> `docker/base-repos.txt` 里的全部仓库），或 classic PAT 带 `repo` scope。未配置时 `notify` 只告警不失败，
 > 靠各应用的每周 `schedule` 兜底（基镜更新最多延迟 7 天才带进应用镜像）。
 
 ---

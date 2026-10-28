@@ -1,0 +1,38 @@
+# 引用公共运行时基镜 ghcr.io/felix2yu/base 的应用仓库清单。
+#
+# 用途：Base Images 流水线发布新基镜后，向这里列出的每个仓库发
+#       repository_dispatch(base-image-updated)，触发它们重建以带入新基镜。
+#
+# 为什么单独成文件、且放在 docker/base/ 之外：
+#   base-image.yml 的 push 触发条件包含 .github/workflows/base-image.yml 自身，
+#   仓库清单原先硬编码在那个文件里 —— 于是「登记一个新仓库」等同于「改了构建逻辑」，
+#   会白跑一次 4 job 基镜构建外加向全量仓库发重建。挪到这里后，登记只改本文件，
+#   而本文件不在 docker/base/** 的匹配范围内，不会触发构建。
+#
+# 不在此列的仓库及原因：
+#   docker-db-auto-backup —— 不 FROM 公共基镜（需读宿主任意卷，形态独立）
+#   ntfy                  —— Dockerfile 来自上游，不引用本组织基镜
+#   WebMonitor / RSSRob   —— 已废弃 / 不再维护，不追基镜
+#
+# 一行一个仓库名；# 开头为注释，空行忽略。
+
+shenshi
+guanfu
+feixi
+diarum
+bili-history
+liuxia
+zhichang
+huozhi
+chaxin
+qingye
+yuexi
+qiansi
+qbhive
+tuqie
+whoami
+mujian
+youlv
+# 2026-10-28 补登记：siwu 的 Dockerfile 第 1 行就是 FROM ghcr.io/felix2yu/base:alpine-3.24，
+# 却从未出现在原硬编码矩阵里 —— 基镜更新时它只能靠自身的每周 schedule 兜底。
+siwu

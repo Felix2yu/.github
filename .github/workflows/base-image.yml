@@ -10,12 +10,15 @@ name: Base Images
 #
 # 发布后：
 #   1. 先合并双架构 manifest（alpine-3.24 / debian-13）
-#   2. 再向每个应用仓库发 repository_dispatch(base-image-updated) 触发重建
-#      —— 你要求不 pin digest，靠这次重建 + build 的 pull:true 把新基镜带进去
+#   2. 再向 docker/base-repos.txt 里的每个应用仓库发 repository_dispatch(base-image-updated)
+#      触发重建 —— 你要求不 pin digest，靠这次重建 + build 的 pull:true 把新基镜带进去
+#
+# 什么改动会触发重建：只有 docker/base/** 下的**构建输入**（Dockerfile / entrypoint）。
+#   目录里的 README 与仓库清单都被排除在外 —— 它们改了不需要重新出镜像。
 #
 # 需要的 secret：DISPATCH_TOKEN —— 一个对各应用仓库有写权限的 token：
 #   - fine-grained PAT：Repository permissions → Contents: Read and write
-#     （Repository access 要覆盖下方 notify 矩阵里的全部仓库）
+#     （Repository access 要覆盖 docker/base-repos.txt 里的全部仓库）
 #   - 或 classic PAT：带 repo scope
 # 未配置时跳过即时触发并告警，各应用仍有自身的每周 schedule 兜底。
 
@@ -24,6 +27,9 @@ on:
     branches: [main]
     paths:
       - 'docker/base/**'
+      # 镜像目录里的 README 不是构建输入。它曾和 Dockerfile 一起被 '**' 命中，
+      # 结果改一句说明就白跑一次基镜构建 + 全量仓库重建（2026-10-18 实测）。
+      - '!docker/base/README.md'
       - '.github/workflows/base-image.yml'
   schedule:
     # 每周一 02:00 UTC 重建一次，拉取 alpine/debian 上游的安全补丁
@@ -39,6 +45,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 订阅清单单独成 job 解析：矩阵表达式只能引用 needs 的输出，
+  # 而清单文件本身不是构建输入，不该让 docker job 为它多一次依赖。
+  plan:
+    runs-on: ubuntu-26.04
+    outputs:
+      repos: ${{ steps.list.outputs.repos }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 读取基镜订阅仓库清单
+        id: list
+        run: |
+          set -euo pipefail
+          f=docker/base-repos.txt
+          if [ ! -s "$f" ]; then
+            echo "::error::$f 缺失或为空 —— 宁可显式失败，也不要静默变成「谁都不通知」"
+            exit 1
+          fi
+          # grep 无匹配会返回 1，在 pipefail 下会把整条管道掐死、后面的数量守卫根本走不到，
+          # 失败就只剩一个没有原因的退出码。这里显式容忍「没匹配」，让守卫去报。
+          repos=$( { grep -vE '^[[:space:]]*(#|$)' "$f" || true; } \
+            | jq -R 'gsub("^\\s+|\\s+$"; "")' | jq -sc '[.[] | select(length > 0)]')
+          n=$(printf '%s' "$repos" | jq 'length')
+          if [ "$n" -lt 1 ]; then
+            echo "::error::$f 里解析出 0 个仓库名"
+            exit 1
+          fi
+          echo "repos=$repos" >> "$GITHUB_OUTPUT"
+          echo "将通知 $n 个仓库：$(printf '%s' "$repos" | jq -r 'join(", ")')"
+
   docker:
     permissions:
       contents: read
@@ -114,32 +150,15 @@ jobs:
           docker buildx imagetools inspect "$image:$tag"
 
   notify:
-    needs: manifest
+    needs: [manifest, plan]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
-      # 与 scripts/check-docker.py 的 REPOS 保持同步：这里列出所有引用公共基镜、
-      # 需要「基镜更新 → 重建」的应用仓库（豁免的 docker-db-auto-backup / ntfy 不在此列）。
+      # 清单来自 docker/base-repos.txt（放这里是为了让它「改登记不触发构建」，
+      # 理由写在那个文件里）。解析失败由 plan job 兜住，不会静默漏通知。
       matrix:
-        repo:
-          - shenshi
-          - guanfu
-          - feixi
-          - diarum
-          - bili-history
-          - liuxia
-          - zhichang
-          - huozhi
-          - chaxin
-          - qingye
-          - yuexi
-          - qiansi
-          - qbhive
-          - tuqie
-          - whoami
-          - mujian
-          - youlv
+        repo: ${{ fromJson(needs.plan.outputs.repos) }}
     steps:
       - name: Dispatch to ${{ matrix.repo }}
         env:
