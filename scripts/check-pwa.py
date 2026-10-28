@@ -39,10 +39,10 @@ except ImportError:  # 可选依赖，缺失时降级而非中断
 REPOS: dict[str, dict] = {
     "shenshi": dict(html="web/index.html", static="web/public",
                     mf="web/public/manifest.webmanifest", sw="web/public/sw.js"),
-    "mujian": dict(html="frontend/src/app.html", static="frontend/static",
-                   mf="frontend/static/manifest.webmanifest", sw="frontend/static/sw.js"),
-    "diarum": dict(html="site/src/app.html", static="site/static",
-                   mf="site/static/manifest.webmanifest", sw=None),
+    "mujian": dict(html="web/src/app.html", static="web/static",
+                   mf="web/static/manifest.webmanifest", sw="web/scripts/sw.template.js"),
+    "diarum": dict(html="web/src/app.html", static="web/static",
+                   mf="web/static/manifest.webmanifest", sw=None),
     # 图切的 SW 不用「换缓存名」那一套：它按当前构建 HTML 里出现的 /assets 名单精确
     # 增删（syncBuildFiles），比计数上限更严格，也正是固定缓存名能成立的前提。
     # 这两项对它不适用，登记为等价替代，不算缺失。
@@ -53,32 +53,47 @@ REPOS: dict[str, dict] = {
     "ntfy": dict(html="web/index.html", static="web/public/static/images",
                  mf=["server/types.go", "server/server_web.go"], sw=None),
     # head 写在 nuxt.config.ts 的 app.head（TS 对象语法）；manifest link 由 @vite-pwa/nuxt 注入
-    "bili-history": dict(html="frontend/nuxt.config.ts", static="frontend/public",
-                         mf="frontend/nuxt.config.ts", sw=None,
+    "bili-history": dict(html="web/nuxt.config.ts", static="web/public",
+                         mf="web/nuxt.config.ts", sw=None,
                          head_injected=["manifest link"]),
     "qingye": dict(html="web/src/app.html", static="web/static",
                    mf="web/vite.config.ts", sw=None),
-    "liuxia": dict(html="templates/index.html", static="static",
-                   mf="web.go", sw="web.go"),
+    # 流霞：maskable 与 any 是同一份字节 —— 合规。§一.1 禁的是复用「带圆角/透明」的图，
+    # 而流霞的源图本身就是满幅不透明（alpha 最小值 255），太阳主体最远角点距中心 102px，
+    # 远在 80% 安全圆（205px）之内，无需再出一份裁切版本。
+    "liuxia": dict(html="internal/web/templates/index.html", static="internal/web/static",
+                   mf="cmd/liuxia/web.go", sw="cmd/liuxia/web.go"),
     "yuexi": dict(html="internal/handler/template/layout.html", static=None,
                   mf="internal/handler/static/manifest.json",
                   sw="internal/handler/static/sw.js",
                   icons_dynamic="main.go"),  # 图标由 Go 运行时绘制，无磁盘文件
-    "huozhi": dict(html="frontend/src/app.html", static="frontend/static",
-                   mf="frontend/vite.config.ts", sw=None),
+    "huozhi": dict(html="web/src/app.html", static="web/static",
+                   mf="web/vite.config.ts", sw=None),
     "qiansi": dict(html="web/index.html", static="web/public",
                    mf="web/vite.config.ts", sw=None),
     "chaxin": dict(html="web/index.html", static="web",
                    mf="web/manifest.webmanifest", sw="web/sw.js"),
     # 手写 sw.js 只做「本次构建的壳 + 静态资源」秒开：/api /front /ping /badge 一律不缓存也不回落，
     # 断网时打开的是上一次构建的空壳 + 空态，而不是旧数据冒充新数据。
-    "feixi": dict(html="internal/web/index.html", static="internal/web/public",
-                  mf="internal/web/public/manifest.webmanifest", sw="internal/web/public/sw.js"),
+    "feixi": dict(html="web/index.html", static="web/public",
+                  mf="web/public/manifest.webmanifest", sw="web/public/sw.js"),
     # 知常：SvelteKit 3 不支持 transformIndexHtml（插件注入不了注册脚本、也产不出 sw.js），
     # @vite-pwa/sveltekit 的 peer 又只到 Kit ^2，因此走预设模板：
     # manifest 是静态文件，SW 由 scripts/gen-sw.mjs 注入构建版本后落到 build/sw.js。
     "zhichang": dict(html="web/src/app.html", static="web/static",
                      mf="web/static/manifest.webmanifest", sw="web/src/sw-template.js"),
+    # 司寤：图标七件套 + site.webmanifest 齐，但按自身决策不挂 SW
+    # （siwu/docs/architecture.md 第 30 行：告警走 ntfy/bark 直达手机，控制台是桌面产物）。
+    # 属于 §四「按设计不挂 SW」的自托管监控面板那一类；head 的 iOS meta 仍按契约要求。
+    "siwu": dict(html="web/index.html", static="web/public",
+                 mf="web/public/site.webmanifest", sw=None, sw_none=True,
+                 sw_note="自托管监控面板，离线时无内容可服务（见 siwu/docs/architecture.md）"),
+    # 观复：manifest 是静态文件，但 .webmanifest 的 MIME 由 Go 侧 init() 显式注册
+    # （TypeByExtension 不认这个扩展名，嗅探成 text/plain 会被浏览器拒收）。
+    # 不挂 SW 走 §四豁免：自托管面板，离线时够不到数据源，缓存一层壳只会误导。
+    "guanfu": dict(html="web/src/app.html", static="web/static",
+                   mf="web/static/manifest.webmanifest", sw=None,
+                   sw_none=True, sw_note="自托管面板，离线时无内容可服务"),
 }
 
 ASSETS = ["favicon.ico", "favicon.svg", "icon-192.png", "icon-512.png",
@@ -108,7 +123,8 @@ MF_FIELDS = ["id", "short_name", "description", "lang", "dir", "start_url",
 # 构建产物 index.html 的常见位置（manifest link 等可能只存在于产物中）
 DIST_HTML = ["web/dist/index.html", "frontend/dist/index.html", "dist/index.html",
              "frontend/build/index.html", "site/build/index.html", "build/index.html",
-             "frontend/.output/public/index.html"]
+             "web/build/index.html", "internal/web/dist/index.html",
+             "frontend/.output/public/index.html", "web/.output/public/index.html"]
 
 SKIP_DIRS = {"node_modules", ".git", "dist", "build", ".svelte-kit", ".output", "target"}
 
@@ -174,6 +190,9 @@ def check_assets(repo: str, cfg: dict) -> tuple[bool, list[str]]:
     if not HAVE_PIL:
         return (not missing), notes
 
+    # 位图违规同样算缺失：绿列的含义是「资产契约这一格是实的」，
+    # 只查存在性会让透明底图标混成 OK，而它恰恰是肉眼看不出来的那种错。
+    notes_before_bitmap = len(notes)
     # maskable：必须位图、满幅无透明、中心有主体
     for name in ("icon-maskable-512.png", "icon-maskable-192.png"):
         p = find_asset(repo, static, name)
@@ -208,7 +227,7 @@ def check_assets(repo: str, cfg: dict) -> tuple[bool, list[str]]:
         if im.split()[3].getextrema()[0] < 255:
             notes.append("apple-touch-icon.png 带透明像素（iOS 会渲染成黑底）")
 
-    return (not missing), notes
+    return (not missing and len(notes) == notes_before_bitmap), notes
 
 
 def check_head(repo: str, cfg: dict) -> tuple[bool, list[str]]:
@@ -337,7 +356,8 @@ def main() -> int:
         s_ok, s_notes = check_sw(repo, cfg)
         notes = [f"[资产] {n}" for n in a_notes] + [f"[head] {n}" for n in h_notes] \
             + [f"[manifest] {n}" for n in m_notes] + [f"[SW] {n}" for n in s_notes]
-        rows.append((repo, mark(a_ok), mark(h_ok), mark(m_ok), mark(s_ok), notes))
+        rows.append((repo, mark(a_ok) + ("" if HAVE_PIL else "*"),
+                     mark(h_ok), mark(m_ok), mark(s_ok), notes))
 
     print("=" * 96)
     print("PWA 契约自检（契约见 docs/PWA.md）")
@@ -361,8 +381,12 @@ def main() -> int:
     print("\n" + "-" * 96)
     print(f"共 {total} 个仓库，{total - failed} 个全绿，{failed} 个待修。")
     if not HAVE_PIL:
-        print("提示：未安装 Pillow，已跳过位图深度校验（满幅透明 / 主体居中）。"
-              "装了更准：pip install pillow")
+        print("提示：资产列带 * 的仓库只查了文件存在性，位图深度校验（满幅无透明 / 主体居中）"
+              "因缺 Pillow 被跳过。\n"
+              "      这一档查出的真实缺陷是「图标在 iOS 主屏渲染成黑底」，肉眼在浏览器里看不出来"
+              "（牵丝的 apple-touch 有四角 1789/32400 透明像素）。\n"
+              "      装法：python3 -m venv /tmp/.pwa-venv && /tmp/.pwa-venv/bin/pip install pillow"
+              "，再用该解释器跑本脚本。")
     return 1 if failed else 0
 
 
