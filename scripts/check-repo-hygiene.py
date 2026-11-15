@@ -48,9 +48,10 @@ AGENT_DIRS = [
     ".continue",
     ".windsurf",
     ".aider",
+    ".zcode",
 ]
-# .gitignore 里必须出现的四条（其余按需）：最常用 + 最容易漏 + 曾误入库过
-REQUIRED_IGNORES = [".workbuddy/", ".trae/", ".qoder/", ".DS_Store"]
+# .gitignore 里必须出现的五条（其余按需）：最常用 + 最容易漏 + 曾误入库过
+REQUIRED_IGNORES = [".workbuddy/", ".trae/", ".qoder/", ".zcode/", ".DS_Store"]
 # 不该被跟踪的构建/包管理产物
 TRACKED_ARTIFACT_PATTERNS = [
     ("coverage.out", "覆盖率产物，每次跑测试都变"),

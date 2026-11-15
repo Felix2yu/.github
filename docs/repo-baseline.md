@@ -135,6 +135,7 @@ workflow，以及有没有写 `@main`。
 .continue/
 .windsurf/
 .aider*
+.zcode/
 
 # ---- 系统垃圾文件（macOS / Windows 都会生成）----
 .DS_Store
