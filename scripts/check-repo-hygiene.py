@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""仓库卫生自检：Agent 生成目录、构建产物、build.sh 规范。
+"""仓库卫生自检：Agent/编辑器/系统垃圾忽略规则、构建产物、build.sh 规范。
 
 这三类问题共享同一个特征：**不做也不会报错**。
 `.workbuddy/` 混进版本库不会让 CI 变红，只会让别人的 clone 里多出一堆自己用不上的
@@ -35,6 +35,8 @@ REPOS: dict[str, dict] = _baseline.REPOS
 
 # AI Agent 工具落盘的目录名（目录级，带尾斜杠）。Trae 的实名是 `.trae`；
 # `.trea` 只是防手滑拼错的兜底，真实磁盘上不存在。
+# 这份清单要与 docs/repo-baseline.md 第六节的基线块保持一致；
+# `.aider*`、`.kilocodemodes` 是文件模式，无法按 top-level 目录检查，故不列入。
 AGENT_DIRS = [
     ".workbuddy",
     ".trae",
@@ -47,11 +49,51 @@ AGENT_DIRS = [
     ".gemini",
     ".continue",
     ".windsurf",
-    ".aider",
     ".zcode",
+    ".mimocode",
+    ".codebuddy",
+    ".roo",
+    ".cline",
+    ".clinerules",
+    ".kilocode",
+    ".kiro",
+    ".junie",
+    ".amazonq",
+    ".spec-gen",
+    ".openlore",
+    ".bmad",
+    "_bmad",
+    "_bmad-output",
+    ".sourcegraph",
+    ".devin",
+    ".factory",
+    ".firebender",
 ]
-# .gitignore 里必须出现的五条（其余按需）：最常用 + 最容易漏 + 曾误入库过
-REQUIRED_IGNORES = [".workbuddy/", ".trae/", ".qoder/", ".zcode/", ".DS_Store"]
+# .gitignore 里必须出现的代表性条目（其余按需）：覆盖 AI 目录、编辑器状态、
+# 系统垃圾、通用缓存与密钥五类，任何一类整段丢失都会被这里抓到。
+REQUIRED_IGNORES = [
+    ".workbuddy/",
+    ".trae/",
+    ".qoder/",
+    ".opencode/",
+    ".claude/",
+    ".codex/",
+    ".gemini/",
+    ".zcode/",
+    ".mimocode/",
+    ".codebuddy/",
+    ".idea/",
+    "*.swp",
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+    "*.tmp",
+    "*.bak",
+    "*.log",
+    "node_modules/",
+    ".env",
+    "secrets/",
+]
 # 不该被跟踪的构建/包管理产物
 TRACKED_ARTIFACT_PATTERNS = [
     ("coverage.out", "覆盖率产物，每次跑测试都变"),

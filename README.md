@@ -489,7 +489,7 @@ PWA 之外还有七类东西同样是「跨仓库契约」——放进任何一�
 |---|---|---|---|
 | 容器镜像 | [`docs/docker.md`](docs/docker.md) | `python3 scripts/check-docker.py` | 以 root 跑、`:latest` 漂移、`.dockerignore` 埋雷、`HEALTHCHECK` 探在鉴权端点上 |
 | 仓库基线 | [`docs/repo-baseline.md`](docs/repo-baseline.md) | `python3 scripts/check-repo-baseline.py` | 缺 LICENSE 别人不能用、缺 dependabot 依赖停更、缺 CI 无人验证分支 |
-| 仓库卫生 | [`docs/repo-baseline.md`](docs/repo-baseline.md) 第六节 | `python3 scripts/check-repo-hygiene.py` | AI Agent 目录与 `coverage.out` 混进版本库，review 被噪音淹没 |
+| 仓库卫生 | [`docs/repo-baseline.md`](docs/repo-baseline.md) 第六节 | `python3 scripts/check-repo-hygiene.py` | AI Agent 目录、编辑器状态与密钥混进版本库，review 被噪音淹没 |
 | 构建脚本 | [`docs/build-script.md`](docs/build-script.md) | `python3 scripts/check-repo-hygiene.py`（build.sh 列） | 每仓一套方言，换台机器或过三个月就得重读一遍 |
 | 命令入口 | [`docs/makefile.md`](docs/makefile.md) | `python3 scripts/check-repo-hygiene.py`（Make 列） | 同上一行：`make build` 在 A 仓能用、B 仓不存在 |
 | 格式基线 | [`docs/code-style.md`](docs/code-style.md) | `python3 scripts/check-repo-hygiene.py`（格式列）+ `scripts/sync-format-baseline.py --check` | 缩进与换行靠自觉；CRLF 进仓库后脚本报 `bad interpreter`、`go:embed` 哈希漂移；Go 侧一行 lint 都没有 |

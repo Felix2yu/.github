@@ -22,7 +22,7 @@
 | 前端三件套 | `packageManager` | `pnpm@<版本>`，写在**前端目录**的 `package.json` | 同上 |
 | 前端三件套 | `pnpm-lock.yaml` | 与 `package.json` 同级 | `--frozen-lockfile` 直接失败 |
 | 忽略规则 | `.gitignore` | 覆盖 `node_modules`、`dist`/`build`、Go 产物 | 把依赖和产物提交进仓库 |
-| 忽略规则 | `.gitignore` 的 Agent 目录块 | 见[第六节](#六忽略规则ai-agent-生成目录) | 会话记忆与规则缓存混进版本库 |
+| 忽略规则 | `.gitignore` 的基线块 | 见[第六节](#六忽略规则ai-agent-目录编辑器状态与系统垃圾文件) | 会话记忆、编辑器状态与密钥混进版本库 |
 | 忽略规则 | 产物不入库 | 无 tracked `coverage.out`、`package-lock.json`、`yarn.lock` | 构建产物与 npm 残留污染 diff |
 | 忽略规则 | 系统垃圾文件 | `.gitignore` 含 `.DS_Store`；无 tracked `.DS_Store` / `Thumbs.db` | Finder 逛一圈就多一条假改动，还会把图标位置之类的二进制混进 diff |
 | 覆盖率 | `codecov.yml` | `project` 与 `patch` **都是** `informational: true` | 覆盖率几点波动就把无关 PR 判红，最后所有人集体无视红灯 |
@@ -113,16 +113,20 @@ workflow，以及有没有写 `@main`。
 
 ---
 
-## 六、忽略规则：AI Agent 目录与系统垃圾文件
+## 六、忽略规则：AI Agent 目录、编辑器状态与系统垃圾文件
 
-各家 AI 编程工具都会在仓库里落一个自己的目录（会话记忆、skills、规则缓存）。
+各家 AI 编程工具都会在仓库里落一个自己的目录（会话记忆、skills、规则缓存、索引）。
 它们**不是项目内容**，混进版本库的后果是：别人的 clone 里出现一堆自己用不上的
-`.md`、每次 review diff 都要跳过它们、`git status` 长期噪音。
+`.md`、每次 review diff 都要跳过它们、`git status` 长期噪音。同一类问题还有编辑器
+本地状态（`.idea/`、`.vscode/`、`*.swp`）、系统垃圾文件（`.DS_Store`、`Thumbs.db`）
+和密钥 / 签名文件（`.env`、`secrets/`、`*.p8`）——这些都不该进版本库。
 
-统一在 `.gitignore` 末尾加这两段（**逐仓都要有，不靠全局 gitignore**）：
+统一在 `.gitignore` 末尾加下面这一块（**逐仓都要有，不靠全局 gitignore**）：
 
 ```gitignore
 # ---- AI Agent 生成目录（不进版本库，本地保留）----
+# 各家 AI 编程工具落盘的会话记忆、规则缓存与索引。规则是目录级：
+# 想共享的项目级配置请放 docs/ 或仓库根具名单文件，不要只忽略子目录。
 .workbuddy/
 .trae/
 .trea/
@@ -136,18 +140,110 @@ workflow，以及有没有写 `@main`。
 .windsurf/
 .aider*
 .zcode/
+.mimocode/
+.codebuddy/
+.roo/
+.cline/
+.clinerules/
+.kilocode/
+.kilocodemodes
+.kiro/
+.junie/
+.amazonq/
+.spec-gen/
+.openlore/
+.bmad/
+_bmad/
+_bmad-output/
+.sourcegraph/
+.devin/
+.factory/
+.firebender/
 
-# ---- 系统垃圾文件（macOS / Windows 都会生成）----
+# ---- 编辑器 / IDE 本地状态（不进版本库）----
+.idea/
+.vscode/
+.vscode-test/
+.history/
+.fleet/
+*.iml
+*.swp
+*.swo
+*~
+
+# ---- 系统垃圾文件（macOS / Windows / Linux 都会生成）----
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+.AppleDouble
+.LSOverride
 Thumbs.db
+ehthumbs.db
 desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.pid
+
+# ---- 通用本地缓存 / 测试产物（各仓再按技术栈补充）----
+.cache/
+.tmp/
+node_modules/
+.pnpm-store/
+*.log
+*.test
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+*.o
+*.lo
+*.la
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- 密钥 / 签名文件（绝不入库）----
+.env
+.env.local
+.env.*.local
+secrets/
+*.p8
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+*.provisionprofile
+
+# ---- Swift / Xcode 本地状态 ----
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
 ```
 
 `liuxia` 的根目录曾提交进一个 `.DS_Store`（`31c97ac`，与 `coverage.out` 同批误入库）——
 它 6KB、内容是 Finder 的图标坐标，每次打开访达都可能变。这类文件加 ignore 不够，
 **已经被跟踪的要 `git rm --cached` 摘掉**。
 
-四个要点：
+六个要点：
 
 1. **已经入库的要摘除索引**，不是只加 ignore —— ignore 对已跟踪文件无效：
    `git rm -r --cached .workbuddy`（`--cached` 保留本地文件），然后单独提交。
@@ -156,10 +252,17 @@ desktop.ini
 3. **规则是目录级（带尾斜杠）**：`.claude/settings.json` 这类想共享的项目级配置，
    真要版本化就挪到 `docs/` 或仓库根具名文件，别指望「只忽略一部分子目录」。
 4. **系统垃圾文件不分平台全写**：仓库在 macOS 和 Windows 上都可能被 clone，
-   三行成本为零，漏一行就得在下一次 review 里发现一个二进制 diff。
+   多写几行成本为零，漏一行就得在下一次 review 里发现一个二进制 diff。
+5. **密钥 / 签名文件永远不靠「记得删」**：`.env`、`secrets/`、`*.p8`、
+   `*.mobileprovision` 一旦入库，历史里就永远留着；忽略规则是最后一道闸。
+6. **fork 仓库不套用完整块**（见第七节）：每次 merge 上游都会冲突，只保留最小必要规则。
 
-> 例外：`.cursorrules`、`AGENTS.md` 这类**单文件**约定通常是想共享的，
+> 例外：`.cursorrules`、`AGENTS.md`、`CLAUDE.md` 这类**单文件**约定通常是想共享的，
 > 不在本规则范围内。判断标准：这个文件是给我自己看的，还是给协作者看的。
+
+> 维护方式：本块是唯一事实来源。新增条目时同步
+> `scripts/check-repo-hygiene.py` 的 `AGENT_DIRS` / `REQUIRED_IGNORES`，
+> 再跑一遍自检，否则漏掉的仓库不会被发现。
 
 ---
 
